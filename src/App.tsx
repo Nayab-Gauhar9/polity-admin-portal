@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { 
   Users, 
@@ -9,7 +9,8 @@ import {
   Newspaper, 
   Database,
   Menu,
-  X
+  X,
+  LogOut
 } from 'lucide-react';
 import { CacheManager } from '@/components/CacheManager';
 import { UserManager } from '@/components/UserManager';
@@ -18,14 +19,33 @@ import { ReportManager } from '@/components/ReportManager';
 import { ArticleManager } from '@/components/ArticleManager';
 import { PYQManager } from '@/components/PYQManager';
 import { PressManager } from '@/components/PressManager';
+import { LoginScreen } from '@/components/LoginScreen';
 
 const queryClient = new QueryClient();
 
 type TabType = 'reports' | 'users' | 'pyqs' | 'articles' | 'dossiers' | 'press' | 'cache';
 
 export default function App() {
+  const [authToken, setAuthToken] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabType>('reports');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  useEffect(() => {
+    const savedToken = localStorage.getItem('PM_ADMIN_SECRET');
+    if (savedToken) {
+      setAuthToken(savedToken);
+    }
+  }, []);
+
+  const handleLoginSuccess = (token: string) => {
+    localStorage.setItem('PM_ADMIN_SECRET', token);
+    setAuthToken(token);
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('PM_ADMIN_SECRET');
+    setAuthToken(null);
+  };
 
   const navItems = [
     { id: 'reports' as const, label: 'Audit & Reports', icon: AlertTriangle },
@@ -41,6 +61,11 @@ export default function App() {
     setActiveTab(tab);
     setMobileMenuOpen(false);
   };
+
+  // Render Login Gatekeeper if unauthenticated
+  if (!authToken) {
+    return <LoginScreen onLoginSuccess={handleLoginSuccess} />;
+  }
 
   return (
     <QueryClientProvider client={queryClient}>
@@ -73,7 +98,7 @@ export default function App() {
           />
         )}
 
-        {/* Navigation Sidebar (Desktop persistent, Mobile slide-over) */}
+        {/* Navigation Sidebar */}
         <aside className={`
           fixed inset-y-0 left-0 z-50 w-72 bg-slate-900 border-r border-slate-800 flex flex-col transition-transform duration-300 ease-in-out shrink-0
           lg:static lg:w-64 lg:translate-x-0 lg:bg-slate-900/60 lg:backdrop-blur-sm
@@ -117,6 +142,16 @@ export default function App() {
               );
             })}
           </nav>
+
+          <div className="p-4 border-t border-slate-800">
+            <button
+              onClick={handleLogout}
+              className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-rose-400 hover:bg-rose-950/30 transition-all font-medium"
+            >
+              <LogOut className="h-4 w-4" />
+              Sign Out
+            </button>
+          </div>
         </aside>
 
         {/* Main Content Area */}
@@ -127,6 +162,13 @@ export default function App() {
               <span>/</span>
               <span className="capitalize font-semibold text-slate-200">{activeTab}</span>
             </div>
+            <button
+              onClick={handleLogout}
+              className="text-xs text-rose-400 hover:text-rose-300 flex items-center gap-1.5 py-1 px-2 rounded-md hover:bg-rose-950/30 transition"
+            >
+              <LogOut className="h-3.5 w-3.5" />
+              Sign Out
+            </button>
           </header>
 
           <div className="p-4 sm:p-6 lg:p-8 max-w-[1600px] w-full mx-auto">
