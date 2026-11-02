@@ -11,7 +11,8 @@ import {
   Menu,
   X,
   LogOut,
-  Scale
+  Scale,
+  Sparkles
 } from 'lucide-react';
 import { CacheManager } from '@/components/CacheManager';
 import { UserManager } from '@/components/UserManager';
@@ -20,11 +21,12 @@ import { ReportManager } from '@/components/ReportManager';
 import { ArticleManager } from '@/components/ArticleManager';
 import { PYQManager } from '@/components/PYQManager';
 import { PressManager } from '@/components/PressManager';
+import { SocialManager } from '@/components/SocialManager';
 import { LoginScreen } from '@/components/LoginScreen';
 
 const queryClient = new QueryClient();
 
-type TabType = 'reports' | 'users' | 'pyqs' | 'articles' | 'dossiers' | 'press' | 'cache';
+type TabType = 'reports' | 'users' | 'pyqs' | 'articles' | 'dossiers' | 'social' | 'press' | 'cache';
 
 function BrandLogo({ size = 'h-10 w-10' }: { size?: string }) {
   const [imgSrc, setImgSrc] = useState('/logo.png');
@@ -87,6 +89,7 @@ export default function App() {
     { id: 'pyqs' as const, label: 'Prelims PYQ Bank', icon: Layers },
     { id: 'articles' as const, label: 'Articles & Bare Act', icon: BookOpen },
     { id: 'dossiers' as const, label: 'Living Dossiers', icon: FileText },
+    { id: 'social' as const, label: 'Social Automation', icon: Sparkles },
     { id: 'press' as const, label: 'Press Ingestion ETL', icon: Newspaper },
     { id: 'cache' as const, label: 'Cache & Systems', icon: Database },
   ];
@@ -207,6 +210,7 @@ export default function App() {
             {activeTab === 'pyqs' && <PYQManager />}
             {activeTab === 'articles' && <ArticleManager />}
             {activeTab === 'dossiers' && <DossierManager />}
+            {activeTab === 'social' && <SocialManager />}
             {activeTab === 'press' && <PressManager />}
             {activeTab === 'cache' && <CacheManager />}
           </div>
