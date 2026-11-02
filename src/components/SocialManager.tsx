@@ -1,690 +1,781 @@
-import { useState, useEffect } from 'react';
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
+import { useState, useEffect, useMemo } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { 
   Sparkles, 
-  RefreshCw, 
-  CheckCircle2, 
-  AlertCircle, 
-  Save, 
-  Check, 
   ChevronLeft, 
   ChevronRight, 
-  Send, 
-  ExternalLink,
-  Layers,
-  Clock
+  CheckCircle2, 
+  Save, 
+  RefreshCw, 
+  Layers, 
+  AlertCircle,
+  Clock,
+  Edit3,
+  MessageSquare
 } from 'lucide-react';
-import { coreApiClient } from '@/lib/api';
+import { apiClient } from '@/lib/api';
 
-interface CampaignQueueItem {
+interface SlideItem {
+  slide_num: string;
+  tier_badge: string;
+  headline: string;
+  subheadline?: string;
+  thesis?: string;
+  chips?: string[];
+  colonial_title?: string;
+  colonial_context?: string;
+  cad_quote?: string;
+  cad_speaker?: string;
+  analytical_insight?: string;
+  points?: Array<{ title: string; desc: string }>;
+  condition_precedent?: string;
+  legislative_supremacy?: string;
+  justiciability?: string;
+  rows?: Array<{ param: string; rule: string; trap: string }>;
+  dimensions?: Array<[string, string]>;
+  pitch?: string;
+  website?: string;
+  telegram?: string;
+  instagram?: string;
+}
+
+interface Campaign {
   id: number;
+  article_id: number;
   article_number: string;
-  title: string;
-  status: 'PENDING_APPROVAL' | 'APPROVED' | 'PUBLISHED' | string;
-  slides_payload: {
-    slides: any[];
-  };
+  status: 'PENDING_APPROVAL' | 'APPROVED';
+  caption: string;
+  slides_payload: { slides: SlideItem[] } | SlideItem[];
   image_paths: string[];
-  caption: string | null;
   created_at: string;
 }
 
 export function SocialManager() {
-  const [queue, setQueue] = useState<CampaignQueueItem[]>([]);
-  const [selectedCampaign, setSelectedCampaign] = useState<CampaignQueueItem | null>(null);
-  const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
-  const [statusFilter, setStatusFilter] = useState<'PENDING_APPROVAL' | 'ALL'>('PENDING_APPROVAL');
+  const queryClient = useQueryClient();
+  const [selectedCampaignId, setSelectedCampaignId] = useState<number | null>(null);
+  const [currentSlideIndex, setCurrentSlideIndex] = useState<number>(0);
+  const [filterStatus, setFilterStatus] = useState<'ALL' | 'PENDING' | 'APPROVED'>('PENDING');
+  const [renderTimestamp, setRenderTimestamp] = useState<number>(Date.now());
   
-  // Generation state
-  const [articleInput, setArticleInput] = useState('');
-  const [generating, setGenerating] = useState(false);
-  const [generateError, setGenerateError] = useState<string | null>(null);
+  // Generation input states
+  const [targetArticleNumber, setTargetArticleNumber] = useState<string>('Article 1');
+  const [selectedTier, setSelectedTier] = useState<string>('TIER_1');
 
-  // Edit / Form state
-  const [editablePayload, setEditablePayload] = useState<any>(null);
-  const [captionInput, setCaptionInput] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [approving, setApproving] = useState(false);
-  const [actionSuccess, setActionSuccess] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  // Slide draft state for real-time form editing
+  const [currentSlideDraft, setCurrentSlideDraft] = useState<SlideItem | null>(null);
 
-  const fetchQueue = async () => {
-    setLoading(true);
-    setActionError(null);
-    try {
-      const res = await coreApiClient.get('/api/admin/social/queue', {
-        params: { status_filter: statusFilter === 'PENDING_APPROVAL' ? 'PENDING_APPROVAL' : undefined }
-      });
-      const items: CampaignQueueItem[] = res.data || [];
-      setQueue(items);
-      if (items.length > 0) {
-        // Retain selection if still in queue, else pick first
-        const match = items.find((c) => c.id === selectedCampaign?.id);
-        selectCampaign(match || items[0]);
-      } else {
-        setSelectedCampaign(null);
-        setEditablePayload(null);
-      }
-    } catch (err: any) {
-      setActionError(err.response?.data?.detail || err.message || 'Failed to fetch queue');
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Editable caption draft state
+  const [captionDraft, setCaptionDraft] = useState<string>('');
 
+  // Fetch campaign queue from newspaper-upsc-ai backend
+  const { data: campaigns = [], isLoading, isError, error } = useQuery<Campaign[]>({
+    queryKey: ['socialCampaigns', filterStatus],
+    queryFn: async () => {
+      const statusParam = filterStatus === 'ALL' 
+        ? '' 
+        : `?status=${filterStatus === 'PENDING' ? 'PENDING_APPROVAL' : 'APPROVED'}`;
+      const res = await apiClient.get(`/api/admin/social/queue${statusParam}`);
+      return res.data;
+    },
+  });
+
+  // Automatically select the first campaign if none selected
   useEffect(() => {
-    fetchQueue();
-  }, [statusFilter]);
+    if (campaigns.length > 0 && !selectedCampaignId) {
+      setSelectedCampaignId(campaigns[0].id);
+      setCurrentSlideIndex(0);
+    }
+  }, [campaigns, selectedCampaignId]);
 
-  const selectCampaign = (camp: CampaignQueueItem) => {
-    setSelectedCampaign(camp);
-    setEditablePayload(JSON.parse(JSON.stringify(camp.slides_payload)));
-    setCaptionInput(camp.caption || '');
-    setCurrentSlideIndex(0);
-    setActionSuccess(null);
-    setActionError(null);
-  };
+  const selectedCampaign = campaigns.find((c) => c.id === selectedCampaignId);
 
-  const handleGenerate = async () => {
-    if (!articleInput.trim()) return;
-    setGenerating(true);
-    setGenerateError(null);
-    try {
-      const res = await coreApiClient.post('/api/admin/social/generate', {
-        article: articleInput.trim()
+  // Sync caption draft when selected campaign changes
+  useEffect(() => {
+    if (selectedCampaign) {
+      setCaptionDraft(selectedCampaign.caption || '');
+    } else {
+      setCaptionDraft('');
+    }
+  }, [selectedCampaign]);
+
+  // Normalize slides into a clean array regardless of backend payload structure
+  const currentSlidesList: SlideItem[] = useMemo(() => {
+    if (!selectedCampaign?.slides_payload) return [];
+    if (Array.isArray(selectedCampaign.slides_payload)) {
+      return selectedCampaign.slides_payload;
+    }
+    if (Array.isArray((selectedCampaign.slides_payload as any)?.slides)) {
+      return (selectedCampaign.slides_payload as any).slides;
+    }
+    return [];
+  }, [selectedCampaign]);
+
+  const totalSlides = Math.max(currentSlidesList.length, 6);
+
+  // Synchronize local editable form whenever active campaign or slide changes
+  useEffect(() => {
+    if (currentSlidesList[currentSlideIndex]) {
+      setCurrentSlideDraft(JSON.parse(JSON.stringify(currentSlidesList[currentSlideIndex])));
+    } else {
+      setCurrentSlideDraft(null);
+    }
+  }, [currentSlidesList, currentSlideIndex]);
+
+  // Mutation: Generate new campaign
+  const generateMutation = useMutation({
+    mutationFn: async () => {
+      const trimmedQuery = targetArticleNumber.trim();
+      const res = await apiClient.post('/api/admin/social/generate', {
+        article: trimmedQuery,
+        article_number: trimmedQuery,
+        tier: selectedTier,
       });
-      setArticleInput('');
-      setActionSuccess(res.data.message || 'Draft created successfully!');
-      await fetchQueue();
-    } catch (err: any) {
-      setGenerateError(err.response?.data?.detail || err.message || 'Generation failed.');
-    } finally {
-      setGenerating(false);
-    }
-  };
+      return res.data;
+    },
+    onSuccess: (newCampaign: any) => {
+      setRenderTimestamp(Date.now());
+      queryClient.invalidateQueries({ queryKey: ['socialCampaigns'] });
+      const newId = newCampaign.id || newCampaign.campaign_id;
+      if (newId) {
+        setSelectedCampaignId(newId);
+        setCurrentSlideIndex(0);
+      }
+    },
+  });
 
-  const handleSaveAmendments = async () => {
-    if (!selectedCampaign || !editablePayload) return;
-    setSaving(true);
-    setActionError(null);
-    setActionSuccess(null);
-    try {
-      const res = await coreApiClient.put(`/api/admin/social/queue/${selectedCampaign.id}/amend`, {
-        slides_payload: editablePayload,
-        caption: captionInput.trim() || null
+  // Mutation: Amend payload & re-render PNGs (includes updated caption)
+  const amendMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedCampaign || !currentSlideDraft) return;
+      const updatedSlides = [...currentSlidesList];
+      updatedSlides[currentSlideIndex] = currentSlideDraft;
+
+      const res = await apiClient.put(`/api/admin/social/queue/${selectedCampaign.id}/amend`, {
+        slides_payload: { slides: updatedSlides },
+        caption: captionDraft,
       });
-
-      const updatedPaths = res.data.image_paths || selectedCampaign.image_paths;
-      const updatedCamp = {
-        ...selectedCampaign,
-        slides_payload: editablePayload,
-        caption: captionInput.trim() || null,
-        image_paths: updatedPaths
-      };
-
-      setSelectedCampaign(updatedCamp);
-      setQueue((prev) => prev.map((c) => (c.id === updatedCamp.id ? updatedCamp : c)));
-      setActionSuccess('Amendments saved & visual PNGs re-rendered dynamically!');
-      setTimeout(() => setActionSuccess(null), 3500);
-    } catch (err: any) {
-      setActionError(err.response?.data?.detail || err.message || 'Failed to amend draft.');
-    } finally {
-      setSaving(false);
+      return res.data;
+    },
+    onSuccess: () => {
+      setRenderTimestamp(Date.now());
+      queryClient.invalidateQueries({ queryKey: ['socialCampaigns'] });
+    },
+    onError: (err: any) => {
+      console.error("Amend failed:", err.response?.data || err.message);
     }
-  };
+  });
 
-  const handleApprove = async () => {
-    if (!selectedCampaign) return;
-    setApproving(true);
-    setActionError(null);
-    setActionSuccess(null);
-    try {
-      await coreApiClient.post(`/api/admin/social/queue/${selectedCampaign.id}/approve`);
-      setActionSuccess(`Campaign #${selectedCampaign.id} approved for distribution!`);
-      await fetchQueue();
-    } catch (err: any) {
-      setActionError(err.response?.data?.detail || err.message || 'Approval failed.');
-    } finally {
-      setApproving(false);
-    }
-  };
+  // Mutation: Approve campaign
+  const approveMutation = useMutation({
+    mutationFn: async (campaignId: number) => {
+      const res = await apiClient.post(`/api/admin/social/queue/${campaignId}/approve`);
+      return res.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['socialCampaigns'] });
+    },
+  });
 
-  const updateSlideField = (slideIdx: number, fieldKey: string, value: any) => {
-    if (!editablePayload || !editablePayload.slides) return;
-    const nextSlides = [...editablePayload.slides];
-    nextSlides[slideIdx] = {
-      ...nextSlides[slideIdx],
-      [fieldKey]: value
-    };
-    setEditablePayload({ ...editablePayload, slides: nextSlides });
-  };
-
-  const updatePointField = (slideIdx: number, pointIdx: number, key: 'title' | 'desc', value: string) => {
-    if (!editablePayload?.slides?.[slideIdx]?.points) return;
-    const nextSlides = [...editablePayload.slides];
-    const nextPoints = [...nextSlides[slideIdx].points];
-    nextPoints[pointIdx] = { ...nextPoints[pointIdx], [key]: value };
-    nextSlides[slideIdx] = { ...nextSlides[slideIdx], points: nextPoints };
-    setEditablePayload({ ...editablePayload, slides: nextSlides });
-  };
-
-  const updateRowField = (slideIdx: number, rowIdx: number, key: 'param' | 'rule' | 'trap', value: string) => {
-    if (!editablePayload?.slides?.[slideIdx]?.rows) return;
-    const nextSlides = [...editablePayload.slides];
-    const nextRows = [...nextSlides[slideIdx].rows];
-    nextRows[rowIdx] = { ...nextRows[rowIdx], [key]: value };
-    nextSlides[slideIdx] = { ...nextSlides[slideIdx], rows: nextRows };
-    setEditablePayload({ ...editablePayload, slides: nextSlides });
-  };
-
-  const currentSlide = editablePayload?.slides?.[currentSlideIndex];
-  const previewImage = selectedCampaign?.image_paths?.[currentSlideIndex];
+  // Resolve preview image URL against VITE_API_BASE_URL with cache-busting timestamp
+  const backendBaseUrl = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
+  const rawPreviewPath = selectedCampaign?.image_paths?.[currentSlideIndex];
+  const previewImageUrl = rawPreviewPath
+    ? `${rawPreviewPath.startsWith('http') ? rawPreviewPath : `${backendBaseUrl}${rawPreviewPath}`}?t=${renderTimestamp}`
+    : null;
 
   return (
     <div className="space-y-6">
-      {/* Top Generator Bar */}
-      <Card className="bg-slate-900 border-slate-800 shadow-sm">
-        <CardHeader className="pb-3 border-b border-slate-800/80">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div>
-              <CardTitle className="text-base font-bold text-slate-100 flex items-center gap-2">
-                <Sparkles className="h-4 w-4 text-[#A8997B]" />
-                Programmatic Social Carousel Studio
-              </CardTitle>
-              <CardDescription className="text-xs text-slate-400 mt-0.5">
-                Generate 5-slide visual carousels with Groq gpt-oss-120b and review before publication.
-              </CardDescription>
-            </div>
-            
-            <div className="flex items-center gap-2">
-              <div className="flex items-center gap-2">
-                <Input
-                  placeholder="Article # (e.g. 200, 356, 72)"
-                  value={articleInput}
-                  onChange={(e) => setArticleInput(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleGenerate()}
-                  disabled={generating}
-                  className="w-48 h-8 text-xs bg-slate-950 border-slate-800 text-slate-100 placeholder:text-slate-500 font-mono"
-                />
-                <Button
-                  size="sm"
-                  onClick={handleGenerate}
-                  disabled={generating || !articleInput.trim()}
-                  className="h-8 px-3 text-xs bg-[#A8997B] hover:bg-[#8f8267] text-slate-950 font-semibold transition"
-                >
-                  <Send className={`h-3.5 w-3.5 mr-1.5 ${generating ? 'animate-spin' : ''}`} />
-                  {generating ? 'Synthesizing...' : 'Generate Draft'}
-                </Button>
-              </div>
+      {/* Top Banner / Studio Header */}
+      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 bg-slate-900/60 border border-slate-800 rounded-xl p-5">
+        <div>
+          <div className="flex items-center gap-2">
+            <Sparkles className="h-5 w-5 text-indigo-400" />
+            <h1 className="text-lg font-bold text-slate-100">Programmatic Social Carousel Studio</h1>
+          </div>
+          <p className="text-xs text-slate-400 mt-1">
+            Generate 6-slide visual carousels with Groq gpt-oss-120b and review before publication.
+          </p>
+        </div>
 
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={fetchQueue}
-                disabled={loading}
-                className="h-8 border-slate-800 bg-slate-950 text-slate-300 hover:bg-slate-800"
-              >
-                <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
-              </Button>
+        {/* Generate Direct Trigger */}
+        <div className="flex items-center gap-2 w-full md:w-auto">
+          <input
+            type="text"
+            value={targetArticleNumber}
+            onChange={(e) => setTargetArticleNumber(e.target.value)}
+            placeholder="e.g. Article 1"
+            className="bg-slate-950 border border-slate-700 text-xs text-slate-200 px-3 py-2 rounded-lg focus:outline-none focus:border-indigo-500 w-32"
+          />
+          <select
+            value={selectedTier}
+            onChange={(e) => setSelectedTier(e.target.value)}
+            className="bg-slate-950 border border-slate-700 text-xs text-slate-200 px-3 py-2 rounded-lg focus:outline-none focus:border-indigo-500"
+          >
+            <option value="TIER_1">Tier 1: Architectural</option>
+            <option value="TIER_2">Tier 2: Institutional</option>
+            <option value="TIER_3">Tier 3: Procedural</option>
+          </select>
+          <button
+            onClick={() => generateMutation.mutate()}
+            disabled={generateMutation.isPending}
+            className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white px-4 py-2 rounded-lg text-xs font-semibold transition disabled:opacity-50 shrink-0"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${generateMutation.isPending ? 'animate-spin' : ''}`} />
+            {generateMutation.isPending ? 'Synthesizing...' : 'Generate Carousel'}
+          </button>
+        </div>
+      </div>
+
+      {isError && (
+        <div className="bg-rose-950/30 border border-rose-800 text-rose-300 text-xs p-4 rounded-lg flex items-center gap-2">
+          <AlertCircle className="h-4 w-4 shrink-0 text-rose-400" />
+          <span>Failed to load campaign queue: {(error as any)?.message || 'Endpoint not found'}</span>
+        </div>
+      )}
+
+      {/* Main Dual-Pane Cockpit */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        {/* Left Column: Campaign Queue List (4 cols) */}
+        <div className="lg:col-span-4 bg-slate-900/60 border border-slate-800 rounded-xl p-4 space-y-3">
+          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+            <div className="flex items-center gap-2">
+              <Layers className="h-4 w-4 text-indigo-400" />
+              <h2 className="text-sm font-semibold text-slate-200">
+                Campaign Queue ({campaigns.length})
+              </h2>
+            </div>
+            <div className="flex items-center gap-1 bg-slate-950 p-0.5 rounded-lg border border-slate-800 text-[10px]">
+              {(['PENDING', 'ALL'] as const).map((st) => (
+                <button
+                  key={st}
+                  onClick={() => setFilterStatus(st)}
+                  className={`px-2 py-1 rounded capitalize transition ${
+                    filterStatus === st
+                      ? 'bg-indigo-600 text-white font-medium'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  {st.toLowerCase()}
+                </button>
+              ))}
             </div>
           </div>
 
-          {generateError && (
-            <div className="mt-3 p-2.5 rounded-lg bg-rose-950/40 border border-rose-800/60 text-rose-300 text-xs flex items-center gap-2">
-              <AlertCircle className="h-4 w-4 shrink-0 text-rose-400" />
-              <span>{generateError}</span>
-            </div>
-          )}
-
-          {actionSuccess && (
-            <div className="mt-3 p-2.5 rounded-lg bg-emerald-950/40 border border-emerald-800/60 text-emerald-300 text-xs flex items-center gap-2">
-              <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />
-              <span>{actionSuccess}</span>
-            </div>
-          )}
-
-          {actionError && (
-            <div className="mt-3 p-2.5 rounded-lg bg-rose-950/40 border border-rose-800/60 text-rose-300 text-xs flex items-center gap-2">
-              <AlertCircle className="h-4 w-4 shrink-0 text-rose-400" />
-              <span>{actionError}</span>
-            </div>
-          )}
-        </CardHeader>
-      </Card>
-
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left Side: Draft Queue List */}
-        <div className="lg:col-span-4">
-          <Card className="bg-slate-900 border-slate-800 shadow-sm">
-            <CardHeader className="border-b border-slate-800/80 pb-3 flex flex-row items-center justify-between">
-              <CardTitle className="text-sm font-bold text-slate-100 flex items-center gap-2">
-                <Layers className="h-4 w-4 text-[#A8997B]" />
-                Campaign Queue ({queue.length})
-              </CardTitle>
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={() => setStatusFilter('PENDING_APPROVAL')}
-                  className={`text-[10px] px-2 py-0.5 rounded transition ${
-                    statusFilter === 'PENDING_APPROVAL' 
-                      ? 'bg-amber-950/70 border border-amber-800/80 text-amber-300 font-semibold' 
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  Pending
-                </button>
-                <button
-                  onClick={() => setStatusFilter('ALL')}
-                  className={`text-[10px] px-2 py-0.5 rounded transition ${
-                    statusFilter === 'ALL' 
-                      ? 'bg-slate-800 text-slate-200 font-semibold' 
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  All
-                </button>
-              </div>
-            </CardHeader>
-            <CardContent className="p-0 max-h-[75vh] overflow-y-auto">
-              <Table>
-                <TableHeader className="bg-slate-900/80 sticky top-0">
-                  <TableRow className="border-slate-800 hover:bg-transparent">
-                    <TableHead className="text-slate-400 pl-4 py-2 text-xs">Provision & Title</TableHead>
-                    <TableHead className="text-slate-400 py-2 text-xs text-right pr-4">Status</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {queue.length === 0 ? (
-                    <TableRow className="border-slate-800">
-                      <TableCell colSpan={2} className="text-center py-10 text-slate-500 text-xs">
-                        {loading ? 'Checking queue...' : 'No campaigns queued.'}
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    queue.map((c) => {
-                      const isSelected = selectedCampaign?.id === c.id;
-                      return (
-                        <TableRow
-                          key={c.id}
-                          onClick={() => selectCampaign(c)}
-                          className={`border-slate-800/60 cursor-pointer transition-colors ${
-                            isSelected ? 'bg-slate-800/80' : 'hover:bg-slate-800/40'
-                          }`}
-                        >
-                          <TableCell className="pl-4 py-3">
-                            <div className="font-semibold text-xs font-mono text-[#A8997B]">
-                              {c.article_number}
-                            </div>
-                            <div className="text-xs text-slate-300 line-clamp-1 mt-0.5">
-                              {c.title}
-                            </div>
-                            <div className="flex items-center gap-1 text-[10px] text-slate-500 mt-1">
-                              <Clock className="h-3 w-3" />
-                              <span>{new Date(c.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                            </div>
-                          </TableCell>
-                          <TableCell className="py-3 text-right pr-4">
-                            <Badge
-                              variant="outline"
-                              className={
-                                c.status === 'APPROVED'
-                                  ? 'border-emerald-700/60 bg-emerald-950/40 text-emerald-400 text-[10px]'
-                                  : 'border-amber-700/60 bg-amber-950/40 text-amber-300 text-[10px]'
-                              }
-                            >
-                              {c.status.replace('_', ' ')}
-                            </Badge>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })
-                  )}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Right Side: Dual-Pane Studio (Visual Preview + In-Place Editor) */}
-        <div className="lg:col-span-8">
-          {selectedCampaign && editablePayload ? (
-            <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
-              {/* Carousel Visualizer */}
-              <div className="xl:col-span-5 space-y-3">
-                <Card className="bg-slate-900 border-slate-800 overflow-hidden shadow-lg">
-                  <div className="relative aspect-[4/5] bg-slate-950 flex items-center justify-center border-b border-slate-800">
-                    {previewImage ? (
-                      <img
-                        key={`${previewImage}?v=${selectedCampaign.created_at}`}
-                        src={`${previewImage}?t=${Date.now()}`}
-                        alt={`Slide ${currentSlideIndex + 1}`}
-                        className="w-full h-full object-contain"
-                        onError={(e) => {
-                          // Handle static local mount
-                          (e.currentTarget as HTMLImageElement).src = previewImage;
-                        }}
-                      />
-                    ) : (
-                      <div className="text-slate-600 text-xs text-center p-6 font-mono">
-                        No image rendered yet.
-                      </div>
-                    )}
-
-                    <div className="absolute top-3 right-3 bg-slate-950/80 px-2 py-0.5 rounded text-[10px] font-mono text-[#B99F9F] border border-slate-800">
-                      Slide {currentSlideIndex + 1} / 5
+          <div className="space-y-2 max-h-[700px] overflow-y-auto pr-1">
+            {isLoading ? (
+              <div className="text-center py-12 text-slate-500 text-xs">Loading campaigns...</div>
+            ) : campaigns.length === 0 ? (
+              <div className="text-center py-12 text-slate-500 text-xs">No campaigns queued.</div>
+            ) : (
+              campaigns.map((camp) => {
+                const isSelected = camp.id === selectedCampaignId;
+                const campSlides = Array.isArray(camp.slides_payload)
+                  ? camp.slides_payload
+                  : (camp.slides_payload as any)?.slides || [];
+                return (
+                  <div
+                    key={camp.id}
+                    onClick={() => {
+                      setSelectedCampaignId(camp.id);
+                      setCurrentSlideIndex(0);
+                    }}
+                    className={`p-3 rounded-lg border cursor-pointer transition text-left space-y-1.5 ${
+                      isSelected
+                        ? 'bg-indigo-950/20 border-indigo-500/40'
+                        : 'bg-slate-950/60 border-slate-800/80 hover:border-slate-700'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-200">{camp.article_number}</span>
+                      <span
+                        className={`text-[9px] px-1.5 py-0.5 rounded font-semibold ${
+                          camp.status === 'APPROVED'
+                            ? 'bg-emerald-950 text-emerald-400 border border-emerald-800'
+                            : 'bg-amber-950 text-amber-400 border border-amber-800'
+                        }`}
+                      >
+                        {camp.status}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 line-clamp-1">
+                      {campSlides[0]?.headline || 'Jurisprudential Framework'}
+                    </p>
+                    <div className="flex items-center justify-between text-[10px] text-slate-500 pt-1">
+                      <span className="flex items-center gap-1">
+                        <Clock className="h-3 w-3" />
+                        {new Date(camp.created_at).toLocaleDateString()}
+                      </span>
+                      <span>{campSlides.length || 6} Slides</span>
                     </div>
                   </div>
+                );
+              })
+            )}
+          </div>
+        </div>
 
-                  <CardContent className="p-3 bg-slate-900/90 flex items-center justify-between">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setCurrentSlideIndex(Math.max(0, currentSlideIndex - 1))}
+        {/* Right Column: Active Slide Preview & Amendment Form (8 cols) */}
+        <div className="lg:col-span-8 space-y-4">
+          {selectedCampaign ? (
+            <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-5 space-y-5">
+              {/* Cockpit Actions Header */}
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-4">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-bold text-slate-100">
+                    {selectedCampaign.article_number}
+                  </span>
+                  <span className="text-xs text-slate-400">
+                    • Slide {currentSlideIndex + 1} of {totalSlides}
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => amendMutation.mutate()}
+                    disabled={amendMutation.isPending}
+                    className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white px-3.5 py-1.5 rounded-lg text-xs font-semibold shadow-md transition disabled:opacity-50"
+                  >
+                    <Save className="h-3.5 w-3.5" />
+                    {amendMutation.isPending ? 'Re-rendering PNG...' : 'Save & Re-render'}
+                  </button>
+                  <button
+                    onClick={() => approveMutation.mutate(selectedCampaign.id)}
+                    disabled={approveMutation.isPending || selectedCampaign.status === 'APPROVED'}
+                    className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white px-3.5 py-1.5 rounded-lg text-xs font-semibold transition"
+                  >
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                    {selectedCampaign.status === 'APPROVED' ? 'Approved' : 'Approve Campaign'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Preview & Slide Editor Split Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+                {/* Visual Slide Display */}
+                <div className="space-y-3">
+                  <div className="relative aspect-[4/5] bg-black rounded-lg border border-slate-800 overflow-hidden flex items-center justify-center shadow-xl">
+                    {previewImageUrl ? (
+                      <img
+                        key={`${previewImageUrl}-${selectedCampaign.id}-${currentSlideIndex}`}
+                        src={previewImageUrl}
+                        alt={`Slide ${currentSlideIndex + 1}`}
+                        className="w-full h-full object-contain"
+                      />
+                    ) : (
+                      <div className="text-slate-600 text-xs">No preview rendered yet</div>
+                    )}
+                  </div>
+
+                  {/* Carousel Slide Navigation Buttons (1 to 6) */}
+                  <div className="flex items-center justify-between pt-1">
+                    <button
+                      onClick={() => setCurrentSlideIndex((prev) => Math.max(0, prev - 1))}
                       disabled={currentSlideIndex === 0}
-                      className="h-7 px-2 border-slate-800 bg-slate-950 text-slate-300"
+                      className="flex items-center gap-1 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-300 px-3 py-1.5 rounded-lg text-xs transition"
                     >
-                      <ChevronLeft className="h-4 w-4" />
-                    </Button>
-
+                      <ChevronLeft className="h-3.5 w-3.5" /> Prev
+                    </button>
                     <div className="flex gap-1.5">
-                      {[0, 1, 2, 3, 4].map((idx) => (
+                      {Array.from({ length: totalSlides }, (_, idx) => (
                         <button
                           key={idx}
                           onClick={() => setCurrentSlideIndex(idx)}
-                          className={`h-2 rounded-full transition-all ${
-                            currentSlideIndex === idx ? 'w-5 bg-[#A8997B]' : 'w-2 bg-slate-700 hover:bg-slate-600'
+                          className={`w-6 h-6 rounded text-[11px] font-bold transition ${
+                            currentSlideIndex === idx
+                              ? 'bg-indigo-600 text-white shadow'
+                              : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
                           }`}
-                        />
+                        >
+                          {idx + 1}
+                        </button>
                       ))}
                     </div>
-
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setCurrentSlideIndex(Math.min(4, currentSlideIndex + 1))}
-                      disabled={currentSlideIndex === 4}
-                      className="h-7 px-2 border-slate-800 bg-slate-950 text-slate-300"
+                    <button
+                      onClick={() => setCurrentSlideIndex((prev) => Math.min(totalSlides - 1, prev + 1))}
+                      disabled={currentSlideIndex >= totalSlides - 1}
+                      className="flex items-center gap-1 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-300 px-3 py-1.5 rounded-lg text-xs transition"
                     >
-                      <ChevronRight className="h-4 w-4" />
-                    </Button>
-                  </CardContent>
-                </Card>
-
-                {previewImage && (
-                  <div className="text-center">
-                    <a
-                      href={previewImage}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-[11px] text-[#A8997B] hover:underline inline-flex items-center gap-1 font-mono"
-                    >
-                      <ExternalLink className="h-3 w-3" /> Open Full-Res PNG (1080x1350)
-                    </a>
+                      Next <ChevronRight className="h-3.5 w-3.5" />
+                    </button>
                   </div>
-                )}
-              </div>
+                </div>
 
-              {/* In-Place Slide & Caption Editor */}
-              <div className="xl:col-span-7">
-                <Card className="bg-slate-900 border-slate-800 shadow-sm">
-                  <CardHeader className="border-b border-slate-800/80 pb-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <div>
-                        <CardTitle className="text-sm font-bold text-slate-100">
-                          Editing Slide {currentSlideIndex + 1}: {currentSlide?.tier_badge || 'Content Form'}
-                        </CardTitle>
-                        <CardDescription className="text-xs text-[#B99F9F] font-mono mt-0.5">
-                          {selectedCampaign.article_number}
-                        </CardDescription>
-                      </div>
-
-                      <div className="flex items-center gap-2">
-                        <Button
-                          size="sm"
-                          onClick={handleSaveAmendments}
-                          disabled={saving}
-                          className="h-8 px-3 text-xs bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700"
-                        >
-                          <Save className={`h-3.5 w-3.5 mr-1 ${saving ? 'animate-spin' : ''}`} />
-                          {saving ? 'Rendering...' : 'Save & Re-render'}
-                        </Button>
-
-                        {selectedCampaign.status !== 'APPROVED' && (
-                          <Button
-                            size="sm"
-                            onClick={handleApprove}
-                            disabled={approving}
-                            className="h-8 px-3 text-xs bg-emerald-600 hover:bg-emerald-500 text-white font-semibold shadow-sm"
-                          >
-                            <Check className={`h-3.5 w-3.5 mr-1 ${approving ? 'animate-spin' : ''}`} />
-                            {approving ? 'Approving...' : 'Approve'}
-                          </Button>
-                        )}
-                      </div>
+                {/* Live Form Editor for Current Slide */}
+                <div className="space-y-3 bg-slate-950/80 p-4 rounded-lg border border-slate-800 max-h-[580px] overflow-y-auto">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                    <div className="flex items-center gap-1.5 text-xs font-bold text-slate-200">
+                      <Edit3 className="h-3.5 w-3.5 text-indigo-400" />
+                      <span>EDIT SLIDE {currentSlideIndex + 1} CONTENT</span>
                     </div>
-                  </CardHeader>
+                    <span className="text-[10px] text-slate-500">Auto-synced</span>
+                  </div>
 
-                  <CardContent className="pt-4 space-y-4 max-h-[65vh] overflow-y-auto text-xs">
-                    {/* SLIDE 1 FORM */}
-                    {currentSlideIndex === 0 && currentSlide && (
-                      <div className="space-y-3">
-                        <div className="space-y-1">
-                          <label className="text-[11px] font-semibold text-[#A8997B]">Headline (H1)</label>
-                          <Input
-                            value={currentSlide.headline || ''}
-                            onChange={(e) => updateSlideField(0, 'headline', e.target.value)}
-                            className="h-8 text-xs bg-slate-950 border-slate-800 text-slate-100 font-bold"
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <label className="text-[11px] font-semibold text-[#B99F9F]">Subheadline</label>
-                          <Input
-                            value={currentSlide.subheadline || ''}
-                            onChange={(e) => updateSlideField(0, 'subheadline', e.target.value)}
-                            className="h-8 text-xs bg-slate-950 border-slate-800 text-slate-100"
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <label className="text-[11px] font-semibold text-slate-400">Core Dialectical Thesis</label>
-                          <Textarea
-                            rows={3}
-                            value={currentSlide.thesis || ''}
-                            onChange={(e) => updateSlideField(0, 'thesis', e.target.value)}
-                            className="text-xs bg-slate-950 border-slate-800 text-slate-200"
-                          />
-                        </div>
+                  {currentSlideDraft ? (
+                    <div className="space-y-3 text-xs">
+                      {/* Common: Tier Badge */}
+                      <div>
+                        <label className="text-[10px] text-slate-400 font-medium block mb-1">
+                          Category Badge (Pill)
+                        </label>
+                        <input
+                          type="text"
+                          value={currentSlideDraft.tier_badge || ''}
+                          onChange={(e) =>
+                            setCurrentSlideDraft({ ...currentSlideDraft, tier_badge: e.target.value })
+                          }
+                          className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs focus:outline-none focus:border-indigo-500"
+                        />
                       </div>
-                    )}
 
-                    {/* SLIDE 2 FORM: CAD CRUCIBLE */}
-                    {currentSlideIndex === 1 && currentSlide && (
-                      <div className="space-y-3">
-                        <div className="space-y-1">
-                          <label className="text-[11px] font-semibold text-[#A8997B]">Slide Title</label>
-                          <Input
-                            value={currentSlide.headline || ''}
-                            onChange={(e) => updateSlideField(1, 'headline', e.target.value)}
-                            className="h-8 text-xs bg-slate-950 border-slate-800 text-slate-100"
-                          />
+                      {/* Common: Headline */}
+                      <div>
+                        <label className="text-[10px] text-slate-400 font-medium block mb-1">
+                          Slide Main Headline
+                        </label>
+                        <input
+                          type="text"
+                          value={currentSlideDraft.headline || ''}
+                          onChange={(e) =>
+                            setCurrentSlideDraft({ ...currentSlideDraft, headline: e.target.value })
+                          }
+                          className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs font-semibold focus:outline-none focus:border-indigo-500"
+                        />
+                      </div>
+
+                      {/* Archetype: Slide 1 (Hook / Thesis) */}
+                      {currentSlideIndex === 0 && (
+                        <>
+                          <div>
+                            <label className="text-[10px] text-slate-400 font-medium block mb-1">
+                              Subheadline
+                            </label>
+                            <input
+                              type="text"
+                              value={currentSlideDraft.subheadline || ''}
+                              onChange={(e) =>
+                                setCurrentSlideDraft({ ...currentSlideDraft, subheadline: e.target.value })
+                              }
+                              className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs focus:outline-none focus:border-indigo-500"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[10px] text-slate-400 font-medium block mb-1">
+                              Analytical Thesis
+                            </label>
+                            <textarea
+                              rows={4}
+                              value={currentSlideDraft.thesis || ''}
+                              onChange={(e) =>
+                                setCurrentSlideDraft({ ...currentSlideDraft, thesis: e.target.value })
+                              }
+                              className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs focus:outline-none focus:border-indigo-500"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[10px] text-slate-400 font-medium block mb-1">
+                              Context Chips (Comma-separated)
+                            </label>
+                            <input
+                              type="text"
+                              value={(currentSlideDraft.chips || []).join(', ')}
+                              onChange={(e) =>
+                                setCurrentSlideDraft({
+                                  ...currentSlideDraft,
+                                  chips: e.target.value.split(',').map((c) => c.trim()).filter(Boolean),
+                                })
+                              }
+                              className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs focus:outline-none focus:border-indigo-500"
+                            />
+                          </div>
+                        </>
+                      )}
+
+                      {/* Archetype: Slide 2 (CAD Crucible) */}
+                      {currentSlideIndex === 1 && (
+                        <>
+                          <div>
+                            <label className="text-[10px] text-slate-400 font-medium block mb-1">
+                              Colonial Roots / Statute Ancestry
+                            </label>
+                            <textarea
+                              rows={3}
+                              value={currentSlideDraft.colonial_context || ''}
+                              onChange={(e) =>
+                                setCurrentSlideDraft({ ...currentSlideDraft, colonial_context: e.target.value })
+                              }
+                              className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs focus:outline-none focus:border-indigo-500"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[10px] text-slate-400 font-medium block mb-1">
+                              Constituent Assembly Debate Quote
+                            </label>
+                            <textarea
+                              rows={3}
+                              value={currentSlideDraft.cad_quote || ''}
+                              onChange={(e) =>
+                                setCurrentSlideDraft({ ...currentSlideDraft, cad_quote: e.target.value })
+                              }
+                              className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs italic focus:outline-none focus:border-indigo-500"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[10px] text-slate-400 font-medium block mb-1">
+                              CAD Speaker
+                            </label>
+                            <input
+                              type="text"
+                              value={currentSlideDraft.cad_speaker || ''}
+                              onChange={(e) =>
+                                setCurrentSlideDraft({ ...currentSlideDraft, cad_speaker: e.target.value })
+                              }
+                              className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs focus:outline-none focus:border-indigo-500"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[10px] text-slate-400 font-medium block mb-1">
+                              Jurisprudential Paradox
+                            </label>
+                            <textarea
+                              rows={3}
+                              value={currentSlideDraft.analytical_insight || ''}
+                              onChange={(e) =>
+                                setCurrentSlideDraft({ ...currentSlideDraft, analytical_insight: e.target.value })
+                              }
+                              className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs focus:outline-none focus:border-indigo-500"
+                            />
+                          </div>
+                        </>
+                      )}
+
+                      {/* Archetype: Slide 3 (Landmark Precedent) */}
+                      {currentSlideIndex === 2 && (
+                        <>
+                          <div>
+                            <label className="text-[10px] text-slate-400 font-medium block mb-1">
+                              Subheadline
+                            </label>
+                            <input
+                              type="text"
+                              value={currentSlideDraft.subheadline || ''}
+                              onChange={(e) =>
+                                setCurrentSlideDraft({ ...currentSlideDraft, subheadline: e.target.value })
+                              }
+                              className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs focus:outline-none focus:border-indigo-500"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <label className="text-[10px] text-slate-400 font-medium block">
+                              3 Doctrinal Legal Holding Points
+                            </label>
+                            {(currentSlideDraft.points || []).map((pt, pIdx) => (
+                              <div key={pIdx} className="space-y-1 bg-slate-900/60 p-2.5 rounded border border-slate-800">
+                                <input
+                                  type="text"
+                                  value={pt.title}
+                                  onChange={(e) => {
+                                    const pts = [...(currentSlideDraft.points || [])];
+                                    pts[pIdx].title = e.target.value;
+                                    setCurrentSlideDraft({ ...currentSlideDraft, points: pts });
+                                  }}
+                                  className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-slate-200 text-xs font-semibold focus:outline-none focus:border-indigo-500"
+                                />
+                                <textarea
+                                  rows={2}
+                                  value={pt.desc}
+                                  onChange={(e) => {
+                                    const pts = [...(currentSlideDraft.points || [])];
+                                    pts[pIdx].desc = e.target.value;
+                                    setCurrentSlideDraft({ ...currentSlideDraft, points: pts });
+                                  }}
+                                  className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-slate-300 text-xs focus:outline-none focus:border-indigo-500"
+                                />
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      )}
+
+                      {/* Archetype: Slide 4 (Rules vs. Traps Matrix) */}
+                      {currentSlideIndex === 3 && (
+                        <div className="space-y-2">
+                          <label className="text-[10px] text-slate-400 font-medium block">
+                            Procedural Matrix & Traps
+                          </label>
+                          {(currentSlideDraft.rows || []).map((row, rIdx) => (
+                            <div key={rIdx} className="space-y-1.5 bg-slate-900/60 p-2.5 rounded border border-slate-800">
+                              <input
+                                type="text"
+                                value={row.param}
+                                placeholder="Parameter name"
+                                onChange={(e) => {
+                                  const r = [...(currentSlideDraft.rows || [])];
+                                  r[rIdx].param = e.target.value;
+                                  setCurrentSlideDraft({ ...currentSlideDraft, rows: r });
+                                }}
+                                className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-slate-200 text-xs font-semibold focus:outline-none focus:border-indigo-500"
+                              />
+                              <input
+                                type="text"
+                                value={row.rule}
+                                placeholder="Rule text"
+                                onChange={(e) => {
+                                  const r = [...(currentSlideDraft.rows || [])];
+                                  r[rIdx].rule = e.target.value;
+                                  setCurrentSlideDraft({ ...currentSlideDraft, rows: r });
+                                }}
+                                className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-sky-300 text-xs focus:outline-none focus:border-indigo-500"
+                              />
+                              <input
+                                type="text"
+                                value={row.trap}
+                                placeholder="Exam trap text"
+                                onChange={(e) => {
+                                  const r = [...(currentSlideDraft.rows || [])];
+                                  r[rIdx].trap = e.target.value;
+                                  setCurrentSlideDraft({ ...currentSlideDraft, rows: r });
+                                }}
+                                className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-amber-300 text-xs focus:outline-none focus:border-indigo-500"
+                              />
+                            </div>
+                          ))}
                         </div>
-                        <div className="space-y-1">
-                          <label className="text-[11px] font-semibold text-[#B99F9F]">Colonial Statute Context</label>
-                          <Textarea
-                            rows={2}
-                            value={currentSlide.colonial_context || ''}
-                            onChange={(e) => updateSlideField(1, 'colonial_context', e.target.value)}
-                            className="text-xs bg-slate-950 border-slate-800 text-slate-200"
-                          />
+                      )}
+
+                      {/* Archetype: Slide 5 (GS-II Dialectical Blueprint) */}
+                      {currentSlideIndex === 4 && (
+                        <div className="space-y-2">
+                          <label className="text-[10px] text-slate-400 font-medium block">
+                            Mains GS-II Dimensions
+                          </label>
+                          {(currentSlideDraft.dimensions || []).map((dim, dIdx) => (
+                            <div key={dIdx} className="space-y-1 bg-slate-900/60 p-2.5 rounded border border-slate-800">
+                              <input
+                                type="text"
+                                value={dim[0]}
+                                onChange={(e) => {
+                                  const d = [...(currentSlideDraft.dimensions || [])];
+                                  d[dIdx] = [e.target.value, d[dIdx][1]];
+                                  setCurrentSlideDraft({ ...currentSlideDraft, dimensions: d });
+                                }}
+                                className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-slate-200 text-xs font-semibold focus:outline-none focus:border-indigo-500"
+                              />
+                              <textarea
+                                rows={2}
+                                value={dim[1]}
+                                onChange={(e) => {
+                                  const d = [...(currentSlideDraft.dimensions || [])];
+                                  d[dIdx] = [d[dIdx][0], e.target.value];
+                                  setCurrentSlideDraft({ ...currentSlideDraft, dimensions: d });
+                                }}
+                                className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-slate-300 text-xs focus:outline-none focus:border-indigo-500"
+                              />
+                            </div>
+                          ))}
                         </div>
-                        <div className="space-y-1 p-2.5 rounded bg-slate-950 border border-slate-800">
-                          <label className="text-[11px] font-semibold text-[#B99F9F]">Constituent Assembly Quote</label>
-                          <Textarea
-                            rows={3}
-                            value={currentSlide.cad_quote || ''}
-                            onChange={(e) => updateSlideField(1, 'cad_quote', e.target.value)}
-                            className="text-xs bg-slate-900 border-slate-800 text-slate-200 italic mt-1"
-                          />
-                          <div className="flex items-center gap-2 mt-2">
-                            <span className="text-[10px] text-slate-400">Speaker:</span>
-                            <Input
-                              value={currentSlide.cad_speaker || 'Dr. B.R. Ambedkar'}
-                              onChange={(e) => updateSlideField(1, 'cad_speaker', e.target.value)}
-                              className="h-7 text-xs bg-slate-900 border-slate-800 text-[#A8997B] font-semibold w-48"
+                      )}
+
+                      {/* Archetype: Slide 6 (Platform & Social Channels CTA) */}
+                      {currentSlideIndex === 5 && (
+                        <div className="space-y-3">
+                          <div>
+                            <label className="text-[10px] text-slate-400 font-medium block mb-1">
+                              Subheadline
+                            </label>
+                            <input
+                              type="text"
+                              value={currentSlideDraft.subheadline || ''}
+                              onChange={(e) =>
+                                setCurrentSlideDraft({ ...currentSlideDraft, subheadline: e.target.value })
+                              }
+                              className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs focus:outline-none focus:border-indigo-500"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[10px] text-slate-400 font-medium block mb-1">
+                              Ecosystem Pitch
+                            </label>
+                            <textarea
+                              rows={3}
+                              value={currentSlideDraft.pitch || ''}
+                              onChange={(e) =>
+                                setCurrentSlideDraft({ ...currentSlideDraft, pitch: e.target.value })
+                              }
+                              className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs focus:outline-none focus:border-indigo-500"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[10px] text-slate-400 font-medium block mb-1">
+                              Website URL
+                            </label>
+                            <input
+                              type="text"
+                              value={currentSlideDraft.website || 'politymentor.com'}
+                              onChange={(e) =>
+                                setCurrentSlideDraft({ ...currentSlideDraft, website: e.target.value })
+                              }
+                              className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs focus:outline-none focus:border-indigo-500"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[10px] text-slate-400 font-medium block mb-1">
+                              Telegram Link
+                            </label>
+                            <input
+                              type="text"
+                              value={currentSlideDraft.telegram || 't.me/politymentor'}
+                              onChange={(e) =>
+                                setCurrentSlideDraft({ ...currentSlideDraft, telegram: e.target.value })
+                              }
+                              className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs focus:outline-none focus:border-indigo-500"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[10px] text-slate-400 font-medium block mb-1">
+                              Instagram Handle
+                            </label>
+                            <input
+                              type="text"
+                              value={currentSlideDraft.instagram || '@politymentor'}
+                              onChange={(e) =>
+                                setCurrentSlideDraft({ ...currentSlideDraft, instagram: e.target.value })
+                              }
+                              className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs focus:outline-none focus:border-indigo-500"
                             />
                           </div>
                         </div>
-                        <div className="space-y-1">
-                          <label className="text-[11px] font-semibold text-[#A8997B]">The Jurisprudential Paradox</label>
-                          <Textarea
-                            rows={2}
-                            value={currentSlide.analytical_insight || ''}
-                            onChange={(e) => updateSlideField(1, 'analytical_insight', e.target.value)}
-                            className="text-xs bg-slate-950 border-slate-800 text-slate-200"
-                          />
-                        </div>
-                      </div>
-                    )}
-
-                    {/* SLIDE 3 FORM: LANDMARK PRECEDENT */}
-                    {currentSlideIndex === 2 && currentSlide && (
-                      <div className="space-y-3">
-                        <div className="space-y-1">
-                          <label className="text-[11px] font-semibold text-[#A8997B]">Landmark Case Headline</label>
-                          <Input
-                            value={currentSlide.headline || ''}
-                            onChange={(e) => updateSlideField(2, 'headline', e.target.value)}
-                            className="h-8 text-xs bg-slate-950 border-slate-800 text-slate-100 font-bold"
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <label className="text-[11px] font-semibold text-[#B99F9F]">Doctrinal Subtitle</label>
-                          <Input
-                            value={currentSlide.subheadline || ''}
-                            onChange={(e) => updateSlideField(2, 'subheadline', e.target.value)}
-                            className="h-8 text-xs bg-slate-950 border-slate-800 text-slate-100"
-                          />
-                        </div>
-                        <div className="space-y-2.5 pt-1">
-                          {currentSlide.points?.map((p: any, pIdx: number) => (
-                            <div key={pIdx} className="p-2.5 rounded bg-slate-950 border border-slate-800 space-y-1.5">
-                              <Input
-                                value={p.title || ''}
-                                onChange={(e) => updatePointField(2, pIdx, 'title', e.target.value)}
-                                className="h-7 text-xs bg-slate-900 border-slate-800 text-[#A8997B] font-semibold"
-                              />
-                              <Textarea
-                                rows={2}
-                                value={p.desc || ''}
-                                onChange={(e) => updatePointField(2, pIdx, 'desc', e.target.value)}
-                                className="text-xs bg-slate-900 border-slate-800 text-slate-300"
-                              />
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* SLIDE 4 FORM: PARAMETERS & TRAPS */}
-                    {currentSlideIndex === 3 && currentSlide && (
-                      <div className="space-y-3">
-                        <div className="space-y-1">
-                          <label className="text-[11px] font-semibold text-[#A8997B]">Slide Headline</label>
-                          <Input
-                            value={currentSlide.headline || ''}
-                            onChange={(e) => updateSlideField(3, 'headline', e.target.value)}
-                            className="h-8 text-xs bg-slate-950 border-slate-800 text-slate-100 font-bold"
-                          />
-                        </div>
-                        <div className="space-y-2.5">
-                          {currentSlide.rows?.map((r: any, rIdx: number) => (
-                            <div key={rIdx} className="p-2.5 rounded bg-slate-950 border border-slate-800 space-y-1.5">
-                              <Input
-                                value={r.param || ''}
-                                onChange={(e) => updateRowField(3, rIdx, 'param', e.target.value)}
-                                className="h-7 text-xs bg-slate-900 border-slate-800 text-slate-100 font-semibold"
-                              />
-                              <Input
-                                placeholder="Rule..."
-                                value={r.rule || ''}
-                                onChange={(e) => updateRowField(3, rIdx, 'rule', e.target.value)}
-                                className="h-7 text-xs bg-slate-900 border-slate-800 text-[#38BDF8]"
-                              />
-                              <Input
-                                placeholder="Trap..."
-                                value={r.trap || ''}
-                                onChange={(e) => updateRowField(3, rIdx, 'trap', e.target.value)}
-                                className="h-7 text-xs bg-slate-900 border-slate-800 text-[#F59E0B]"
-                              />
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* SLIDE 5 FORM: MAINS BLUEPRINT */}
-                    {currentSlideIndex === 4 && currentSlide && (
-                      <div className="space-y-3">
-                        <div className="space-y-1">
-                          <label className="text-[11px] font-semibold text-[#A8997B]">Slide Headline</label>
-                          <Input
-                            value={currentSlide.headline || ''}
-                            onChange={(e) => updateSlideField(4, 'headline', e.target.value)}
-                            className="h-8 text-xs bg-slate-950 border-slate-800 text-slate-100 font-bold"
-                          />
-                        </div>
-                        <div className="space-y-2.5">
-                          {currentSlide.dimensions?.map((dim: any[], dIdx: number) => (
-                            <div key={dIdx} className="p-2.5 rounded bg-slate-950 border border-slate-800 space-y-1.5">
-                              <Input
-                                value={dim[0] || ''}
-                                onChange={(e) => {
-                                  const nextDims = [...currentSlide.dimensions];
-                                  nextDims[dIdx] = [e.target.value, nextDims[dIdx][1]];
-                                  updateSlideField(4, 'dimensions', nextDims);
-                                }}
-                                className="h-7 text-xs bg-slate-900 border-slate-800 text-[#A8997B] font-semibold"
-                              />
-                              <Textarea
-                                rows={2}
-                                value={dim[1] || ''}
-                                onChange={(e) => {
-                                  const nextDims = [...currentSlide.dimensions];
-                                  nextDims[dIdx] = [nextDims[dIdx][0], e.target.value];
-                                  updateSlideField(4, 'dimensions', nextDims);
-                                }}
-                                className="text-xs bg-slate-900 border-slate-800 text-slate-300"
-                              />
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* SOCIAL CAPTION & HASHTAGS */}
-                    <div className="pt-2 border-t border-slate-800 space-y-1">
-                      <label className="text-[11px] font-semibold text-slate-400">Social Post Caption</label>
-                      <Textarea
-                        rows={3}
-                        value={captionInput}
-                        onChange={(e) => setCaptionInput(e.target.value)}
-                        className="text-xs bg-slate-950 border-slate-800 text-slate-200 leading-relaxed font-mono"
-                      />
+                      )}
                     </div>
-                  </CardContent>
-                </Card>
+                  ) : (
+                    <div className="text-center py-8 text-slate-500 text-xs">
+                      No slide payload found for Slide {currentSlideIndex + 1}.
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Editable Instagram/LinkedIn Caption Card */}
+              <div className="bg-slate-950/80 p-4 rounded-lg border border-slate-800 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-slate-200">
+                    <MessageSquare className="h-3.5 w-3.5 text-indigo-400" />
+                    <span>SYNCHRONIZED POST CAPTION & HASHTAGS</span>
+                  </div>
+                  <span className="text-[10px] text-slate-500">Saved on "Save & Re-render"</span>
+                </div>
+                <textarea
+                  rows={4}
+                  value={captionDraft}
+                  onChange={(e) => setCaptionDraft(e.target.value)}
+                  placeholder="Enter social post caption..."
+                  className="w-full bg-slate-900 border border-slate-700 rounded p-2.5 text-xs text-slate-300 leading-relaxed focus:outline-none focus:border-indigo-500 resize-y"
+                />
               </div>
             </div>
           ) : (
-            <Card className="bg-slate-900 border-slate-800 shadow-sm">
-              <CardContent className="py-24 text-center text-slate-500 text-xs">
-                Select an article campaign from the queue to preview slides and amend content.
-              </CardContent>
-            </Card>
+            <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-16 text-center text-slate-500 text-xs">
+              Select an article campaign from the queue to review and amend slides.
+            </div>
           )}
         </div>
       </div>
