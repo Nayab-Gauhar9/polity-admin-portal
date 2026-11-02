@@ -10,7 +10,8 @@ import {
   Database,
   Menu,
   X,
-  LogOut
+  LogOut,
+  Scale
 } from 'lucide-react';
 import { CacheManager } from '@/components/CacheManager';
 import { UserManager } from '@/components/UserManager';
@@ -24,6 +25,39 @@ import { LoginScreen } from '@/components/LoginScreen';
 const queryClient = new QueryClient();
 
 type TabType = 'reports' | 'users' | 'pyqs' | 'articles' | 'dossiers' | 'press' | 'cache';
+
+function BrandLogo({ size = 'h-10 w-10' }: { size?: string }) {
+  const [imgSrc, setImgSrc] = useState('/logo.png');
+  const [loadFailed, setLoadFailed] = useState(false);
+
+  const handleError = () => {
+    if (imgSrc === '/logo.png') {
+      // In Windows, saving as logo.png with extensions hidden creates logo.png.png
+      setImgSrc('/logo.png.png');
+    } else {
+      setLoadFailed(true);
+    }
+  };
+
+  if (loadFailed) {
+    return (
+      <div className={`${size} rounded-full bg-gradient-to-tr from-amber-600 via-indigo-600 to-indigo-500 p-0.5 flex items-center justify-center shadow-md shadow-indigo-500/20 shrink-0`}>
+        <div className="h-full w-full rounded-full bg-slate-950 flex items-center justify-center">
+          <Scale className="h-5 w-5 text-amber-400" />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={imgSrc}
+      alt="Polity Mentor Logo"
+      onError={handleError}
+      className={`${size} rounded-full object-contain shrink-0 ring-1 ring-slate-800 bg-slate-900`}
+    />
+  );
+}
 
 export default function App() {
   const [authToken, setAuthToken] = useState<string | null>(null);
@@ -71,11 +105,9 @@ export default function App() {
     <QueryClientProvider client={queryClient}>
       <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col lg:flex-row relative">
         {/* Mobile Header */}
-        <header className="lg:hidden h-16 border-b border-slate-800 bg-slate-900/90 backdrop-blur px-4 flex items-center justify-between sticky top-0 z-40 shrink-0">
+        <header className="lg:hidden h-16 border-b border-slate-800 bg-slate-900 px-4 flex items-center justify-between sticky top-0 z-40 shrink-0">
           <div className="flex items-center gap-3">
-            <div className="h-8 w-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white font-bold text-sm shadow-md shadow-indigo-500/20">
-              PM
-            </div>
+            <BrandLogo size="h-9 w-9" />
             <div>
               <h2 className="font-bold text-sm text-slate-100 leading-tight">Polity Mentor</h2>
               <p className="text-[10px] text-slate-400 capitalize">{activeTab.replace('-', ' ')}</p>
@@ -94,7 +126,7 @@ export default function App() {
         {mobileMenuOpen && (
           <div 
             onClick={() => setMobileMenuOpen(false)}
-            className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-40 lg:hidden transition-opacity"
+            className="fixed inset-0 bg-slate-950/80 z-40 lg:hidden transition-opacity"
           />
         )}
 
@@ -106,11 +138,9 @@ export default function App() {
         `}>
           <div className="p-6 border-b border-slate-800 flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="h-8 w-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white font-bold text-sm shadow-md shadow-indigo-500/20">
-                PM
-              </div>
+              <BrandLogo size="h-10 w-10" />
               <div>
-                <h2 className="font-bold text-sm text-slate-100">Polity Mentor</h2>
+                <h2 className="font-bold text-sm text-slate-100 leading-tight">Polity Mentor</h2>
                 <p className="text-xs text-slate-400">Back Office Cockpit</p>
               </div>
             </div>
@@ -155,7 +185,7 @@ export default function App() {
         </aside>
 
         {/* Main Content Area */}
-        <main className="flex-1 flex flex-col overflow-y-auto bg-slate-950 min-w-0">
+        <main className="flex-1 flex flex-col overflow-y-auto bg-slate-950 min-w-0 [transform:translateZ(0)]">
           <header className="hidden lg:flex h-16 border-b border-slate-800 bg-slate-900/40 backdrop-blur-sm px-8 items-center justify-between shrink-0">
             <div className="flex items-center gap-2 text-sm text-slate-400">
               <span>Admin</span>
