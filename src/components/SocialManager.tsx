@@ -196,11 +196,20 @@ export function SocialManager() {
     },
   });
 
-  const backendBaseUrl = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
-  const rawPreviewPath = selectedCampaign?.image_paths?.[currentSlideIndex];
-  const previewImageUrl = rawPreviewPath
-    ? `${rawPreviewPath.startsWith('http') ? rawPreviewPath : `${backendBaseUrl}${rawPreviewPath}`}?t=${renderTimestamp}`
-    : null;
+  // Safe Image URL Resolver: Preserves Cloudflare SigV4 parameters intact
+  const previewImageUrl = useMemo(() => {
+    const raw = selectedCampaign?.image_paths?.[currentSlideIndex];
+    if (!raw) return null;
+
+    if (raw.startsWith('http://') || raw.startsWith('https://')) {
+      // Cloudflare R2 Presigned URL: Return directly without altering query parameters
+      return raw;
+    }
+
+    // Local / relative server path: Prefix with backend host and append cache-buster
+    const backendBaseUrl = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
+    return `${backendBaseUrl}${raw}?t=${renderTimestamp}`;
+  }, [selectedCampaign, currentSlideIndex, renderTimestamp]);
 
   return (
     <div className="space-y-6">
@@ -402,7 +411,7 @@ export function SocialManager() {
                   <div className="relative aspect-[4/5] bg-black rounded-lg border border-slate-800 overflow-hidden flex items-center justify-center shadow-xl">
                     {previewImageUrl ? (
                       <img
-                        key={`${previewImageUrl}-${selectedCampaign.id}-${currentSlideIndex}`}
+                        key={`${previewImageUrl}-${selectedCampaign.id}-${currentSlideIndex}-${renderTimestamp}`}
                         src={previewImageUrl}
                         alt={`Slide ${currentSlideIndex + 1}`}
                         className="w-full h-full object-contain"
@@ -490,7 +499,7 @@ export function SocialManager() {
                         />
                       </div>
 
-                      {/* Subheadline (common to several slides) */}
+                      {/* Subheadline */}
                       {currentSlideDraft.subheadline !== undefined && (
                         <div>
                           <label className="text-[10px] text-slate-400 font-medium block mb-1">
@@ -643,7 +652,7 @@ export function SocialManager() {
                                     setCurrentSlideDraft({ ...currentSlideDraft, points: p });
                                   }
                                 }}
-                                className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-slate-200 text-xs font-semibold focus:outline-none focus:border-indigo-500"
+                                className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1 text-slate-200 text-xs font-semibold focus:outline-none focus:border-indigo-500"
                               />
                               <textarea
                                 rows={2}
