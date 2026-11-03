@@ -11,7 +11,9 @@ import {
   AlertCircle,
   Clock,
   Edit3,
-  MessageSquare
+  MessageSquare,
+  Newspaper,
+  BookOpen
 } from 'lucide-react';
 import { apiClient } from '@/lib/api';
 
@@ -22,17 +24,19 @@ interface SlideItem {
   subheadline?: string;
   thesis?: string;
   chips?: string[];
+  // Article-wise specific
   colonial_title?: string;
   colonial_context?: string;
   cad_quote?: string;
   cad_speaker?: string;
   analytical_insight?: string;
-  points?: Array<{ title: string; desc: string }>;
-  condition_precedent?: string;
-  legislative_supremacy?: string;
-  justiciability?: string;
-  rows?: Array<{ param: string; rule: string; trap: string }>;
   dimensions?: Array<[string, string]>;
+  // PIB-specific
+  notes?: Array<{ title: string; desc: string }>;
+  points?: Array<{ title: string; desc: string }>;
+  rows?: Array<{ param: string; rule: string; trap: string }>;
+  mains_question?: string;
+  // Shared Slide 6
   pitch?: string;
   website?: string;
   telegram?: string;
@@ -43,7 +47,7 @@ interface Campaign {
   id: number;
   article_id: number;
   article_number: string;
-  status: 'PENDING_APPROVAL' | 'APPROVED';
+  status: 'PENDING_APPROVAL' | 'APPROVED' | 'PUBLISHED' | 'FAILED';
   caption: string;
   slides_payload: { slides: SlideItem[] } | SlideItem[];
   image_paths: string[];
@@ -63,11 +67,9 @@ export function SocialManager() {
 
   // Slide draft state for real-time form editing
   const [currentSlideDraft, setCurrentSlideDraft] = useState<SlideItem | null>(null);
-
-  // Editable caption draft state
   const [captionDraft, setCaptionDraft] = useState<string>('');
 
-  // Fetch campaign queue from newspaper-upsc-ai backend
+  // Fetch campaign queue
   const { data: campaigns = [], isLoading, isError, error } = useQuery<Campaign[]>({
     queryKey: ['socialCampaigns', filterStatus],
     queryFn: async () => {
@@ -88,6 +90,7 @@ export function SocialManager() {
   }, [campaigns, selectedCampaignId]);
 
   const selectedCampaign = campaigns.find((c) => c.id === selectedCampaignId);
+  const isPibCampaign = selectedCampaign?.article_number?.startsWith('PIB:') ?? false;
 
   // Sync caption draft when selected campaign changes
   useEffect(() => {
@@ -98,7 +101,7 @@ export function SocialManager() {
     }
   }, [selectedCampaign]);
 
-  // Normalize slides into a clean array regardless of backend payload structure
+  // Normalize slides into a clean array
   const currentSlidesList: SlideItem[] = useMemo(() => {
     if (!selectedCampaign?.slides_payload) return [];
     if (Array.isArray(selectedCampaign.slides_payload)) {
@@ -112,7 +115,7 @@ export function SocialManager() {
 
   const totalSlides = Math.max(currentSlidesList.length, 6);
 
-  // Synchronize local editable form whenever active campaign or slide changes
+  // Synchronize local editable form
   useEffect(() => {
     if (currentSlidesList[currentSlideIndex]) {
       setCurrentSlideDraft(JSON.parse(JSON.stringify(currentSlidesList[currentSlideIndex])));
@@ -121,8 +124,8 @@ export function SocialManager() {
     }
   }, [currentSlidesList, currentSlideIndex]);
 
-  // Mutation: Generate new campaign
-  const generateMutation = useMutation({
+  // Mutation: Generate Article campaign
+  const generateArticleMutation = useMutation({
     mutationFn: async () => {
       const trimmedQuery = targetArticleNumber.trim();
       const res = await apiClient.post('/api/admin/social/generate', {
@@ -143,7 +146,24 @@ export function SocialManager() {
     },
   });
 
-  // Mutation: Amend payload & re-render PNGs (includes updated caption)
+  // Mutation: Generate Latest PIB campaign
+  const generatePibMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiClient.post('/api/admin/social/generate/pib-latest');
+      return res.data;
+    },
+    onSuccess: (newCampaign: any) => {
+      setRenderTimestamp(Date.now());
+      queryClient.invalidateQueries({ queryKey: ['socialCampaigns'] });
+      const newId = newCampaign.id || newCampaign.campaign_id;
+      if (newId) {
+        setSelectedCampaignId(newId);
+        setCurrentSlideIndex(0);
+      }
+    },
+  });
+
+  // Mutation: Amend payload & re-render PNGs
   const amendMutation = useMutation({
     mutationFn: async () => {
       if (!selectedCampaign || !currentSlideDraft) return;
@@ -165,7 +185,7 @@ export function SocialManager() {
     }
   });
 
-  // Mutation: Approve campaign
+  // Mutation: Approve & Publish
   const approveMutation = useMutation({
     mutationFn: async (campaignId: number) => {
       const res = await apiClient.post(`/api/admin/social/queue/${campaignId}/approve`);
@@ -176,7 +196,6 @@ export function SocialManager() {
     },
   });
 
-  // Resolve preview image URL against VITE_API_BASE_URL with cache-busting timestamp
   const backendBaseUrl = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
   const rawPreviewPath = selectedCampaign?.image_paths?.[currentSlideIndex];
   const previewImageUrl = rawPreviewPath
@@ -185,44 +204,57 @@ export function SocialManager() {
 
   return (
     <div className="space-y-6">
-      {/* Top Banner / Studio Header */}
-      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 bg-slate-900/60 border border-slate-800 rounded-xl p-5">
+      {/* Studio Header & Trigger Controls */}
+      <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 bg-slate-900/60 border border-slate-800 rounded-xl p-5">
         <div>
           <div className="flex items-center gap-2">
             <Sparkles className="h-5 w-5 text-indigo-400" />
-            <h1 className="text-lg font-bold text-slate-100">Programmatic Social Carousel Studio</h1>
+            <h1 className="text-lg font-bold text-slate-100">Social Automation Cockpit</h1>
           </div>
           <p className="text-xs text-slate-400 mt-1">
-            Generate 6-slide visual carousels with Groq gpt-oss-120b and review before publication.
+            Publish verified 6-slide visual carousels for Constitutional Articles and Daily PIB Releases.
           </p>
         </div>
 
-        {/* Generate Direct Trigger */}
-        <div className="flex items-center gap-2 w-full md:w-auto">
-          <input
-            type="text"
-            value={targetArticleNumber}
-            onChange={(e) => setTargetArticleNumber(e.target.value)}
-            placeholder="e.g. Article 1"
-            className="bg-slate-950 border border-slate-700 text-xs text-slate-200 px-3 py-2 rounded-lg focus:outline-none focus:border-indigo-500 w-32"
-          />
-          <select
-            value={selectedTier}
-            onChange={(e) => setSelectedTier(e.target.value)}
-            className="bg-slate-950 border border-slate-700 text-xs text-slate-200 px-3 py-2 rounded-lg focus:outline-none focus:border-indigo-500"
-          >
-            <option value="TIER_1">Tier 1: Architectural</option>
-            <option value="TIER_2">Tier 2: Institutional</option>
-            <option value="TIER_3">Tier 3: Procedural</option>
-          </select>
+        <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
+          {/* PIB Trigger Button */}
           <button
-            onClick={() => generateMutation.mutate()}
-            disabled={generateMutation.isPending}
-            className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white px-4 py-2 rounded-lg text-xs font-semibold transition disabled:opacity-50 shrink-0"
+            onClick={() => generatePibMutation.mutate()}
+            disabled={generatePibMutation.isPending}
+            className="flex items-center gap-2 bg-amber-600 hover:bg-amber-500 active:scale-95 text-white px-4 py-2 rounded-lg text-xs font-semibold transition disabled:opacity-50 shrink-0"
           >
-            <RefreshCw className={`h-3.5 w-3.5 ${generateMutation.isPending ? 'animate-spin' : ''}`} />
-            {generateMutation.isPending ? 'Synthesizing...' : 'Generate Carousel'}
+            <Newspaper className={`h-3.5 w-3.5 ${generatePibMutation.isPending ? 'animate-spin' : ''}`} />
+            {generatePibMutation.isPending ? 'Ingesting R2 Note...' : 'Generate Latest PIB Carousel'}
           </button>
+
+          {/* Article Generator Controls */}
+          <div className="flex items-center gap-2 bg-slate-950 p-1 rounded-lg border border-slate-800">
+            <BookOpen className="h-3.5 w-3.5 text-indigo-400 ml-2" />
+            <input
+              type="text"
+              value={targetArticleNumber}
+              onChange={(e) => setTargetArticleNumber(e.target.value)}
+              placeholder="e.g. Article 1"
+              className="bg-transparent border-none text-xs text-slate-200 px-2 py-1.5 focus:outline-none w-28"
+            />
+            <select
+              value={selectedTier}
+              onChange={(e) => setSelectedTier(e.target.value)}
+              className="bg-slate-900 border border-slate-700 text-xs text-slate-200 px-2 py-1.5 rounded focus:outline-none"
+            >
+              <option value="TIER_1">Tier 1</option>
+              <option value="TIER_2">Tier 2</option>
+              <option value="TIER_3">Tier 3</option>
+            </select>
+            <button
+              onClick={() => generateArticleMutation.mutate()}
+              disabled={generateArticleMutation.isPending}
+              className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white px-3 py-1.5 rounded text-xs font-semibold transition disabled:opacity-50"
+            >
+              <RefreshCw className={`h-3 w-3 ${generateArticleMutation.isPending ? 'animate-spin' : ''}`} />
+              {generateArticleMutation.isPending ? 'Synthesizing...' : 'Generate Article'}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -235,7 +267,7 @@ export function SocialManager() {
 
       {/* Main Dual-Pane Cockpit */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* Left Column: Campaign Queue List (4 cols) */}
+        {/* Left Column: Campaign Queue (4 cols) */}
         <div className="lg:col-span-4 bg-slate-900/60 border border-slate-800 rounded-xl p-4 space-y-3">
           <div className="flex items-center justify-between border-b border-slate-800 pb-3">
             <div className="flex items-center gap-2">
@@ -269,9 +301,11 @@ export function SocialManager() {
             ) : (
               campaigns.map((camp) => {
                 const isSelected = camp.id === selectedCampaignId;
+                const isPib = camp.article_number.startsWith('PIB:');
                 const campSlides = Array.isArray(camp.slides_payload)
                   ? camp.slides_payload
                   : (camp.slides_payload as any)?.slides || [];
+
                 return (
                   <div
                     key={camp.id}
@@ -286,10 +320,17 @@ export function SocialManager() {
                     }`}
                   >
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-slate-200">{camp.article_number}</span>
+                      <div className="flex items-center gap-1.5">
+                        {isPib ? (
+                          <Newspaper className="h-3.5 w-3.5 text-amber-400" />
+                        ) : (
+                          <BookOpen className="h-3.5 w-3.5 text-indigo-400" />
+                        )}
+                        <span className="text-xs font-bold text-slate-200">{camp.article_number}</span>
+                      </div>
                       <span
                         className={`text-[9px] px-1.5 py-0.5 rounded font-semibold ${
-                          camp.status === 'APPROVED'
+                          camp.status === 'PUBLISHED' || camp.status === 'APPROVED'
                             ? 'bg-emerald-950 text-emerald-400 border border-emerald-800'
                             : 'bg-amber-950 text-amber-400 border border-amber-800'
                         }`}
@@ -298,7 +339,7 @@ export function SocialManager() {
                       </span>
                     </div>
                     <p className="text-[11px] text-slate-400 line-clamp-1">
-                      {campSlides[0]?.headline || 'Jurisprudential Framework'}
+                      {campSlides[0]?.headline || 'Constitutional Dossier'}
                     </p>
                     <div className="flex items-center justify-between text-[10px] text-slate-500 pt-1">
                       <span className="flex items-center gap-1">
@@ -314,7 +355,7 @@ export function SocialManager() {
           </div>
         </div>
 
-        {/* Right Column: Active Slide Preview & Amendment Form (8 cols) */}
+        {/* Right Column: Slide Preview & Form Editor (8 cols) */}
         <div className="lg:col-span-8 space-y-4">
           {selectedCampaign ? (
             <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-5 space-y-5">
@@ -327,6 +368,11 @@ export function SocialManager() {
                   <span className="text-xs text-slate-400">
                     • Slide {currentSlideIndex + 1} of {totalSlides}
                   </span>
+                  {isPibCampaign && (
+                    <span className="text-[10px] bg-amber-950/80 text-amber-400 border border-amber-800 px-2 py-0.5 rounded font-medium">
+                      PIB Mode
+                    </span>
+                  )}
                 </div>
 
                 <div className="flex items-center gap-2">
@@ -340,16 +386,16 @@ export function SocialManager() {
                   </button>
                   <button
                     onClick={() => approveMutation.mutate(selectedCampaign.id)}
-                    disabled={approveMutation.isPending || selectedCampaign.status === 'APPROVED'}
+                    disabled={approveMutation.isPending || selectedCampaign.status === 'PUBLISHED'}
                     className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white px-3.5 py-1.5 rounded-lg text-xs font-semibold transition"
                   >
                     <CheckCircle2 className="h-3.5 w-3.5" />
-                    {selectedCampaign.status === 'APPROVED' ? 'Approved' : 'Approve Campaign'}
+                    {selectedCampaign.status === 'PUBLISHED' ? 'Published' : 'Approve & Publish'}
                   </button>
                 </div>
               </div>
 
-              {/* Preview & Slide Editor Split Grid */}
+              {/* Preview & Slide Editor Grid */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
                 {/* Visual Slide Display */}
                 <div className="space-y-3">
@@ -400,14 +446,16 @@ export function SocialManager() {
                   </div>
                 </div>
 
-                {/* Live Form Editor for Current Slide */}
+                {/* Adaptive Form Editor for Current Slide */}
                 <div className="space-y-3 bg-slate-950/80 p-4 rounded-lg border border-slate-800 max-h-[580px] overflow-y-auto">
                   <div className="flex items-center justify-between border-b border-slate-800 pb-2">
                     <div className="flex items-center gap-1.5 text-xs font-bold text-slate-200">
                       <Edit3 className="h-3.5 w-3.5 text-indigo-400" />
                       <span>EDIT SLIDE {currentSlideIndex + 1} CONTENT</span>
                     </div>
-                    <span className="text-[10px] text-slate-500">Auto-synced</span>
+                    <span className="text-[10px] text-slate-500">
+                      {isPibCampaign ? 'PIB Archetype' : 'Article Archetype'}
+                    </span>
                   </div>
 
                   {currentSlideDraft ? (
@@ -415,7 +463,7 @@ export function SocialManager() {
                       {/* Common: Tier Badge */}
                       <div>
                         <label className="text-[10px] text-slate-400 font-medium block mb-1">
-                          Category Badge (Pill)
+                          Category Badge
                         </label>
                         <input
                           type="text"
@@ -442,28 +490,32 @@ export function SocialManager() {
                         />
                       </div>
 
-                      {/* Archetype: Slide 1 (Hook / Thesis) */}
+                      {/* Subheadline (common to several slides) */}
+                      {currentSlideDraft.subheadline !== undefined && (
+                        <div>
+                          <label className="text-[10px] text-slate-400 font-medium block mb-1">
+                            Subheadline
+                          </label>
+                          <input
+                            type="text"
+                            value={currentSlideDraft.subheadline || ''}
+                            onChange={(e) =>
+                              setCurrentSlideDraft({ ...currentSlideDraft, subheadline: e.target.value })
+                            }
+                            className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs focus:outline-none focus:border-indigo-500"
+                          />
+                        </div>
+                      )}
+
+                      {/* ================= SLIDE 1 ================= */}
                       {currentSlideIndex === 0 && (
                         <>
                           <div>
                             <label className="text-[10px] text-slate-400 font-medium block mb-1">
-                              Subheadline
-                            </label>
-                            <input
-                              type="text"
-                              value={currentSlideDraft.subheadline || ''}
-                              onChange={(e) =>
-                                setCurrentSlideDraft({ ...currentSlideDraft, subheadline: e.target.value })
-                              }
-                              className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs focus:outline-none focus:border-indigo-500"
-                            />
-                          </div>
-                          <div>
-                            <label className="text-[10px] text-slate-400 font-medium block mb-1">
-                              Analytical Thesis
+                              Overview Thesis / Hook
                             </label>
                             <textarea
-                              rows={4}
+                              rows={3}
                               value={currentSlideDraft.thesis || ''}
                               onChange={(e) =>
                                 setCurrentSlideDraft({ ...currentSlideDraft, thesis: e.target.value })
@@ -490,51 +542,12 @@ export function SocialManager() {
                         </>
                       )}
 
-                      {/* Archetype: Slide 2 (CAD Crucible) */}
+                      {/* ================= SLIDE 2 ================= */}
                       {currentSlideIndex === 1 && (
                         <>
                           <div>
                             <label className="text-[10px] text-slate-400 font-medium block mb-1">
-                              Colonial Roots / Statute Ancestry
-                            </label>
-                            <textarea
-                              rows={3}
-                              value={currentSlideDraft.colonial_context || ''}
-                              onChange={(e) =>
-                                setCurrentSlideDraft({ ...currentSlideDraft, colonial_context: e.target.value })
-                              }
-                              className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs focus:outline-none focus:border-indigo-500"
-                            />
-                          </div>
-                          <div>
-                            <label className="text-[10px] text-slate-400 font-medium block mb-1">
-                              Constituent Assembly Debate Quote
-                            </label>
-                            <textarea
-                              rows={3}
-                              value={currentSlideDraft.cad_quote || ''}
-                              onChange={(e) =>
-                                setCurrentSlideDraft({ ...currentSlideDraft, cad_quote: e.target.value })
-                              }
-                              className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs italic focus:outline-none focus:border-indigo-500"
-                            />
-                          </div>
-                          <div>
-                            <label className="text-[10px] text-slate-400 font-medium block mb-1">
-                              CAD Speaker
-                            </label>
-                            <input
-                              type="text"
-                              value={currentSlideDraft.cad_speaker || ''}
-                              onChange={(e) =>
-                                setCurrentSlideDraft({ ...currentSlideDraft, cad_speaker: e.target.value })
-                              }
-                              className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs focus:outline-none focus:border-indigo-500"
-                            />
-                          </div>
-                          <div>
-                            <label className="text-[10px] text-slate-400 font-medium block mb-1">
-                              Jurisprudential Paradox
+                              {isPibCampaign ? 'Why It Matters Narrative' : 'Jurisprudential Paradox'}
                             </label>
                             <textarea
                               rows={3}
@@ -545,128 +558,106 @@ export function SocialManager() {
                               className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs focus:outline-none focus:border-indigo-500"
                             />
                           </div>
-                        </>
-                      )}
-
-                      {/* Archetype: Slide 3 (Landmark Precedent) */}
-                      {currentSlideIndex === 2 && (
-                        <>
-                          <div>
-                            <label className="text-[10px] text-slate-400 font-medium block mb-1">
-                              Subheadline
-                            </label>
-                            <input
-                              type="text"
-                              value={currentSlideDraft.subheadline || ''}
-                              onChange={(e) =>
-                                setCurrentSlideDraft({ ...currentSlideDraft, subheadline: e.target.value })
-                              }
-                              className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs focus:outline-none focus:border-indigo-500"
-                            />
-                          </div>
-                          <div className="space-y-2">
-                            <label className="text-[10px] text-slate-400 font-medium block">
-                              3 Doctrinal Legal Holding Points
-                            </label>
-                            {(currentSlideDraft.points || []).map((pt, pIdx) => (
-                              <div key={pIdx} className="space-y-1 bg-slate-900/60 p-2.5 rounded border border-slate-800">
-                                <input
-                                  type="text"
-                                  value={pt.title}
-                                  onChange={(e) => {
-                                    const pts = [...(currentSlideDraft.points || [])];
-                                    pts[pIdx].title = e.target.value;
-                                    setCurrentSlideDraft({ ...currentSlideDraft, points: pts });
-                                  }}
-                                  className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-slate-200 text-xs font-semibold focus:outline-none focus:border-indigo-500"
-                                />
+                          {!isPibCampaign ? (
+                            <>
+                              <div>
+                                <label className="text-[10px] text-slate-400 font-medium block mb-1">
+                                  Colonial Context
+                                </label>
                                 <textarea
                                   rows={2}
-                                  value={pt.desc}
-                                  onChange={(e) => {
-                                    const pts = [...(currentSlideDraft.points || [])];
-                                    pts[pIdx].desc = e.target.value;
-                                    setCurrentSlideDraft({ ...currentSlideDraft, points: pts });
-                                  }}
-                                  className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-slate-300 text-xs focus:outline-none focus:border-indigo-500"
+                                  value={currentSlideDraft.colonial_context || ''}
+                                  onChange={(e) =>
+                                    setCurrentSlideDraft({ ...currentSlideDraft, colonial_context: e.target.value })
+                                  }
+                                  className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs focus:outline-none focus:border-indigo-500"
                                 />
                               </div>
-                            ))}
-                          </div>
+                              <div>
+                                <label className="text-[10px] text-slate-400 font-medium block mb-1">
+                                  CAD Quote
+                                </label>
+                                <textarea
+                                  rows={3}
+                                  value={currentSlideDraft.cad_quote || ''}
+                                  onChange={(e) =>
+                                    setCurrentSlideDraft({ ...currentSlideDraft, cad_quote: e.target.value })
+                                  }
+                                  className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs italic focus:outline-none focus:border-indigo-500"
+                                />
+                              </div>
+                            </>
+                          ) : (
+                            <div className="space-y-2">
+                              <label className="text-[10px] text-slate-400 font-medium block">
+                                Core Policy & Governance Directives
+                              </label>
+                              {(currentSlideDraft.points || []).map((pt, pIdx) => (
+                                <div key={pIdx} className="space-y-1 bg-slate-900/60 p-2 rounded border border-slate-800">
+                                  <input
+                                    type="text"
+                                    value={pt.title}
+                                    onChange={(e) => {
+                                      const pts = [...(currentSlideDraft.points || [])];
+                                      pts[pIdx].title = e.target.value;
+                                      setCurrentSlideDraft({ ...currentSlideDraft, points: pts });
+                                    }}
+                                    className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-slate-200 text-xs font-semibold focus:outline-none"
+                                  />
+                                  <textarea
+                                    rows={2}
+                                    value={pt.desc}
+                                    onChange={(e) => {
+                                      const pts = [...(currentSlideDraft.points || [])];
+                                      pts[pIdx].desc = e.target.value;
+                                      setCurrentSlideDraft({ ...currentSlideDraft, points: pts });
+                                    }}
+                                    className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-slate-300 text-xs focus:outline-none"
+                                  />
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </>
                       )}
 
-                      {/* Archetype: Slide 4 (Rules vs. Traps Matrix) */}
-                      {currentSlideIndex === 3 && (
+                      {/* ================= SLIDE 3 ================= */}
+                      {currentSlideIndex === 2 && (
                         <div className="space-y-2">
                           <label className="text-[10px] text-slate-400 font-medium block">
-                            Procedural Matrix & Traps
+                            {isPibCampaign ? 'Smart Notes Dossier Cards' : 'Landmark Precedent Holdings'}
                           </label>
-                          {(currentSlideDraft.rows || []).map((row, rIdx) => (
-                            <div key={rIdx} className="space-y-1.5 bg-slate-900/60 p-2.5 rounded border border-slate-800">
+                          {(isPibCampaign ? currentSlideDraft.notes || [] : currentSlideDraft.points || []).map((item, idx) => (
+                            <div key={idx} className="space-y-1 bg-slate-900/60 p-2.5 rounded border border-slate-800">
                               <input
                                 type="text"
-                                value={row.param}
-                                placeholder="Parameter name"
+                                value={item.title}
                                 onChange={(e) => {
-                                  const r = [...(currentSlideDraft.rows || [])];
-                                  r[rIdx].param = e.target.value;
-                                  setCurrentSlideDraft({ ...currentSlideDraft, rows: r });
-                                }}
-                                className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-slate-200 text-xs font-semibold focus:outline-none focus:border-indigo-500"
-                              />
-                              <input
-                                type="text"
-                                value={row.rule}
-                                placeholder="Rule text"
-                                onChange={(e) => {
-                                  const r = [...(currentSlideDraft.rows || [])];
-                                  r[rIdx].rule = e.target.value;
-                                  setCurrentSlideDraft({ ...currentSlideDraft, rows: r });
-                                }}
-                                className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-sky-300 text-xs focus:outline-none focus:border-indigo-500"
-                              />
-                              <input
-                                type="text"
-                                value={row.trap}
-                                placeholder="Exam trap text"
-                                onChange={(e) => {
-                                  const r = [...(currentSlideDraft.rows || [])];
-                                  r[rIdx].trap = e.target.value;
-                                  setCurrentSlideDraft({ ...currentSlideDraft, rows: r });
-                                }}
-                                className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-amber-300 text-xs focus:outline-none focus:border-indigo-500"
-                              />
-                            </div>
-                          ))}
-                        </div>
-                      )}
-
-                      {/* Archetype: Slide 5 (GS-II Dialectical Blueprint) */}
-                      {currentSlideIndex === 4 && (
-                        <div className="space-y-2">
-                          <label className="text-[10px] text-slate-400 font-medium block">
-                            Mains GS-II Dimensions
-                          </label>
-                          {(currentSlideDraft.dimensions || []).map((dim, dIdx) => (
-                            <div key={dIdx} className="space-y-1 bg-slate-900/60 p-2.5 rounded border border-slate-800">
-                              <input
-                                type="text"
-                                value={dim[0]}
-                                onChange={(e) => {
-                                  const d = [...(currentSlideDraft.dimensions || [])];
-                                  d[dIdx] = [e.target.value, d[dIdx][1]];
-                                  setCurrentSlideDraft({ ...currentSlideDraft, dimensions: d });
+                                  if (isPibCampaign) {
+                                    const n = [...(currentSlideDraft.notes || [])];
+                                    n[idx].title = e.target.value;
+                                    setCurrentSlideDraft({ ...currentSlideDraft, notes: n });
+                                  } else {
+                                    const p = [...(currentSlideDraft.points || [])];
+                                    p[idx].title = e.target.value;
+                                    setCurrentSlideDraft({ ...currentSlideDraft, points: p });
+                                  }
                                 }}
                                 className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-slate-200 text-xs font-semibold focus:outline-none focus:border-indigo-500"
                               />
                               <textarea
                                 rows={2}
-                                value={dim[1]}
+                                value={item.desc}
                                 onChange={(e) => {
-                                  const d = [...(currentSlideDraft.dimensions || [])];
-                                  d[dIdx] = [d[dIdx][0], e.target.value];
-                                  setCurrentSlideDraft({ ...currentSlideDraft, dimensions: d });
+                                  if (isPibCampaign) {
+                                    const n = [...(currentSlideDraft.notes || [])];
+                                    n[idx].desc = e.target.value;
+                                    setCurrentSlideDraft({ ...currentSlideDraft, notes: n });
+                                  } else {
+                                    const p = [...(currentSlideDraft.points || [])];
+                                    p[idx].desc = e.target.value;
+                                    setCurrentSlideDraft({ ...currentSlideDraft, points: p });
+                                  }
                                 }}
                                 className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-slate-300 text-xs focus:outline-none focus:border-indigo-500"
                               />
@@ -675,35 +666,173 @@ export function SocialManager() {
                         </div>
                       )}
 
-                      {/* Archetype: Slide 6 (Platform & Social Channels CTA) */}
+                      {/* ================= SLIDE 4 ================= */}
+                      {currentSlideIndex === 3 && (
+                        <div className="space-y-2">
+                          <label className="text-[10px] text-slate-400 font-medium block">
+                            {isPibCampaign ? 'Backward Linkages (2-Col Badges)' : 'Procedural Traps Matrix'}
+                          </label>
+                          {isPibCampaign ? (
+                            (currentSlideDraft.points || []).map((pt, pIdx) => (
+                              <div key={pIdx} className="space-y-1 bg-slate-900/60 p-2 rounded border border-slate-800">
+                                <input
+                                  type="text"
+                                  value={pt.title}
+                                  placeholder="e.g. Article 15(4)"
+                                  onChange={(e) => {
+                                    const pts = [...(currentSlideDraft.points || [])];
+                                    pts[pIdx].title = e.target.value;
+                                    setCurrentSlideDraft({ ...currentSlideDraft, points: pts });
+                                  }}
+                                  className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-slate-200 text-xs font-semibold focus:outline-none"
+                                />
+                                <input
+                                  type="text"
+                                  value={pt.desc}
+                                  placeholder="Brief description"
+                                  onChange={(e) => {
+                                    const pts = [...(currentSlideDraft.points || [])];
+                                    pts[pIdx].desc = e.target.value;
+                                    setCurrentSlideDraft({ ...currentSlideDraft, points: pts });
+                                  }}
+                                  className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-slate-300 text-xs focus:outline-none"
+                                />
+                              </div>
+                            ))
+                          ) : (
+                            (currentSlideDraft.rows || []).map((row, rIdx) => (
+                              <div key={rIdx} className="space-y-1.5 bg-slate-900/60 p-2.5 rounded border border-slate-800">
+                                <input
+                                  type="text"
+                                  value={row.param}
+                                  onChange={(e) => {
+                                    const r = [...(currentSlideDraft.rows || [])];
+                                    r[rIdx].param = e.target.value;
+                                    setCurrentSlideDraft({ ...currentSlideDraft, rows: r });
+                                  }}
+                                  className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-slate-200 text-xs font-semibold focus:outline-none"
+                                />
+                                <input
+                                  type="text"
+                                  value={row.rule}
+                                  onChange={(e) => {
+                                    const r = [...(currentSlideDraft.rows || [])];
+                                    r[rIdx].rule = e.target.value;
+                                    setCurrentSlideDraft({ ...currentSlideDraft, rows: r });
+                                  }}
+                                  className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-sky-300 text-xs focus:outline-none"
+                                />
+                                <input
+                                  type="text"
+                                  value={row.trap}
+                                  onChange={(e) => {
+                                    const r = [...(currentSlideDraft.rows || [])];
+                                    r[rIdx].trap = e.target.value;
+                                    setCurrentSlideDraft({ ...currentSlideDraft, rows: r });
+                                  }}
+                                  className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-amber-300 text-xs focus:outline-none"
+                                />
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      )}
+
+                      {/* ================= SLIDE 5 ================= */}
+                      {currentSlideIndex === 4 && (
+                        <div className="space-y-3">
+                          {isPibCampaign ? (
+                            <>
+                              <div>
+                                <label className="text-[10px] text-slate-400 font-medium block mb-1">
+                                  Mains Analytical Question
+                                </label>
+                                <textarea
+                                  rows={4}
+                                  value={currentSlideDraft.mains_question || ''}
+                                  onChange={(e) =>
+                                    setCurrentSlideDraft({ ...currentSlideDraft, mains_question: e.target.value })
+                                  }
+                                  className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs focus:outline-none focus:border-indigo-500"
+                                />
+                              </div>
+                              <div className="space-y-2">
+                                <label className="text-[10px] text-slate-400 font-medium block">
+                                  Prelims Rule vs. Trap Items
+                                </label>
+                                {(currentSlideDraft.rows || []).map((row, rIdx) => (
+                                  <div key={rIdx} className="space-y-1 bg-slate-900/60 p-2.5 rounded border border-slate-800">
+                                    <input
+                                      type="text"
+                                      value={row.param}
+                                      onChange={(e) => {
+                                        const r = [...(currentSlideDraft.rows || [])];
+                                        r[rIdx].param = e.target.value;
+                                        setCurrentSlideDraft({ ...currentSlideDraft, rows: r });
+                                      }}
+                                      className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-slate-200 text-xs font-semibold focus:outline-none"
+                                    />
+                                    <input
+                                      type="text"
+                                      value={row.rule}
+                                      onChange={(e) => {
+                                        const r = [...(currentSlideDraft.rows || [])];
+                                        r[rIdx].rule = e.target.value;
+                                        setCurrentSlideDraft({ ...currentSlideDraft, rows: r });
+                                      }}
+                                      className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-sky-300 text-xs focus:outline-none"
+                                    />
+                                    <input
+                                      type="text"
+                                      value={row.trap}
+                                      onChange={(e) => {
+                                        const r = [...(currentSlideDraft.rows || [])];
+                                        r[rIdx].trap = e.target.value;
+                                        setCurrentSlideDraft({ ...currentSlideDraft, rows: r });
+                                      }}
+                                      className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-amber-300 text-xs focus:outline-none"
+                                    />
+                                  </div>
+                                ))}
+                              </div>
+                            </>
+                          ) : (
+                            <div className="space-y-2">
+                              <label className="text-[10px] text-slate-400 font-medium block">
+                                Mains Dialectical Dimensions
+                              </label>
+                              {(currentSlideDraft.dimensions || []).map((dim, dIdx) => (
+                                <div key={dIdx} className="space-y-1 bg-slate-900/60 p-2.5 rounded border border-slate-800">
+                                  <input
+                                    type="text"
+                                    value={dim[0]}
+                                    onChange={(e) => {
+                                      const d = [...(currentSlideDraft.dimensions || [])];
+                                      d[dIdx] = [e.target.value, d[dIdx][1]];
+                                      setCurrentSlideDraft({ ...currentSlideDraft, dimensions: d });
+                                    }}
+                                    className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-slate-200 text-xs font-semibold focus:outline-none"
+                                  />
+                                  <textarea
+                                    rows={2}
+                                    value={dim[1]}
+                                    onChange={(e) => {
+                                      const d = [...(currentSlideDraft.dimensions || [])];
+                                      d[dIdx] = [d[dIdx][0], e.target.value];
+                                      setCurrentSlideDraft({ ...currentSlideDraft, dimensions: d });
+                                    }}
+                                    className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-slate-300 text-xs focus:outline-none"
+                                  />
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* ================= SLIDE 6 ================= */}
                       {currentSlideIndex === 5 && (
                         <div className="space-y-3">
-                          <div>
-                            <label className="text-[10px] text-slate-400 font-medium block mb-1">
-                              Subheadline
-                            </label>
-                            <input
-                              type="text"
-                              value={currentSlideDraft.subheadline || ''}
-                              onChange={(e) =>
-                                setCurrentSlideDraft({ ...currentSlideDraft, subheadline: e.target.value })
-                              }
-                              className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs focus:outline-none focus:border-indigo-500"
-                            />
-                          </div>
-                          <div>
-                            <label className="text-[10px] text-slate-400 font-medium block mb-1">
-                              Ecosystem Pitch
-                            </label>
-                            <textarea
-                              rows={3}
-                              value={currentSlideDraft.pitch || ''}
-                              onChange={(e) =>
-                                setCurrentSlideDraft({ ...currentSlideDraft, pitch: e.target.value })
-                              }
-                              className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs focus:outline-none focus:border-indigo-500"
-                            />
-                          </div>
                           <div>
                             <label className="text-[10px] text-slate-400 font-medium block mb-1">
                               Website URL
@@ -723,7 +852,7 @@ export function SocialManager() {
                             </label>
                             <input
                               type="text"
-                              value={currentSlideDraft.telegram || 't.me/politymentor'}
+                              value={currentSlideDraft.telegram || 't.me/polity_mentor_ai'}
                               onChange={(e) =>
                                 setCurrentSlideDraft({ ...currentSlideDraft, telegram: e.target.value })
                               }
@@ -736,7 +865,7 @@ export function SocialManager() {
                             </label>
                             <input
                               type="text"
-                              value={currentSlideDraft.instagram || '@politymentor'}
+                              value={currentSlideDraft.instagram || '@politymentor_ai'}
                               onChange={(e) =>
                                 setCurrentSlideDraft({ ...currentSlideDraft, instagram: e.target.value })
                               }
@@ -754,7 +883,7 @@ export function SocialManager() {
                 </div>
               </div>
 
-              {/* Editable Instagram/LinkedIn Caption Card */}
+              {/* Editable Social Post Caption Card */}
               <div className="bg-slate-950/80 p-4 rounded-lg border border-slate-800 space-y-2">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-1.5 text-xs font-bold text-slate-200">
@@ -774,7 +903,7 @@ export function SocialManager() {
             </div>
           ) : (
             <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-16 text-center text-slate-500 text-xs">
-              Select an article campaign from the queue to review and amend slides.
+              Select a campaign from the queue to review and amend slides.
             </div>
           )}
         </div>
