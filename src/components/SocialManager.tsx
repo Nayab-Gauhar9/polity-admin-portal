@@ -196,17 +196,18 @@ export function SocialManager() {
     },
   });
 
-  // Safe Image URL Resolver: Preserves Cloudflare SigV4 parameters intact
+  // Safe CDN Image Resolver
   const previewImageUrl = useMemo(() => {
     const raw = selectedCampaign?.image_paths?.[currentSlideIndex];
     if (!raw) return null;
 
     if (raw.startsWith('http://') || raw.startsWith('https://')) {
-      // Cloudflare R2 Presigned URL: Return directly without altering query parameters
-      return raw;
+      // If it's a media.politymentor.com or CDN link, append simple cache-buster
+      const sep = raw.includes('?') ? '&' : '?';
+      return `${raw}${sep}v=${renderTimestamp}`;
     }
 
-    // Local / relative server path: Prefix with backend host and append cache-buster
+    // Relative local server path fallback
     const backendBaseUrl = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
     return `${backendBaseUrl}${raw}?t=${renderTimestamp}`;
   }, [selectedCampaign, currentSlideIndex, renderTimestamp]);
@@ -652,7 +653,7 @@ export function SocialManager() {
                                     setCurrentSlideDraft({ ...currentSlideDraft, points: p });
                                   }
                                 }}
-                                className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1 text-slate-200 text-xs font-semibold focus:outline-none focus:border-indigo-500"
+                                className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-slate-200 text-xs font-semibold focus:outline-none focus:border-indigo-500"
                               />
                               <textarea
                                 rows={2}
