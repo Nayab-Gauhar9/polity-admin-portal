@@ -13,7 +13,8 @@ import {
   Edit3,
   MessageSquare,
   Newspaper,
-  BookOpen
+  BookOpen,
+  GitFork
 } from 'lucide-react';
 import { apiClient } from '@/lib/api';
 
@@ -22,8 +23,17 @@ interface SlideItem {
   tier_badge: string;
   headline: string;
   subheadline?: string;
-  thesis?: string;
   chips?: string[];
+  
+  // Dossier-specific
+  summary?: string;
+  nodal_body?: string;
+  more_updates_notice?: string;
+  anchors?: Array<{ title: string; desc: string }>;
+  nodes?: Array<{ date?: string; publication?: string; title: string; body: string }>;
+  thesis?: string;
+  critique?: string;
+
   // Article-wise specific
   colonial_title?: string;
   colonial_context?: string;
@@ -31,11 +41,13 @@ interface SlideItem {
   cad_speaker?: string;
   analytical_insight?: string;
   dimensions?: Array<[string, string]>;
-  // PIB-specific
+
+  // PIB & shared points
   notes?: Array<{ title: string; desc: string }>;
   points?: Array<{ title: string; desc: string }>;
   rows?: Array<{ param: string; rule: string; trap: string }>;
   mains_question?: string;
+
   // Shared Slide 6
   pitch?: string;
   website?: string;
@@ -45,7 +57,7 @@ interface SlideItem {
 
 interface Campaign {
   id: number;
-  article_id: number;
+  article_id: number | null;
   article_number: string;
   status: 'PENDING_APPROVAL' | 'APPROVED' | 'PUBLISHED' | 'FAILED';
   caption: string;
@@ -64,6 +76,7 @@ export function SocialManager() {
   // Generation input states
   const [targetArticleNumber, setTargetArticleNumber] = useState<string>('Article 1');
   const [selectedTier, setSelectedTier] = useState<string>('TIER_1');
+  const [targetDossierSlug, setTargetDossierSlug] = useState<string>('');
 
   // Slide draft state for real-time form editing
   const [currentSlideDraft, setCurrentSlideDraft] = useState<SlideItem | null>(null);
@@ -90,6 +103,7 @@ export function SocialManager() {
   }, [campaigns, selectedCampaignId]);
 
   const selectedCampaign = campaigns.find((c) => c.id === selectedCampaignId);
+  const isDossierCampaign = selectedCampaign?.article_number?.startsWith('DOSSIER:') ?? false;
   const isPibCampaign = selectedCampaign?.article_number?.startsWith('PIB:') ?? false;
 
   // Sync caption draft when selected campaign changes
@@ -163,6 +177,27 @@ export function SocialManager() {
     },
   });
 
+  // Mutation: Generate Dossier campaign
+  const generateDossierMutation = useMutation({
+    mutationFn: async () => {
+      const trimmedSlug = targetDossierSlug.trim();
+      const res = await apiClient.post('/api/admin/social/generate/dossier', {
+        issue_slug: trimmedSlug,
+      });
+      return res.data;
+    },
+    onSuccess: (newCampaign: any) => {
+      setRenderTimestamp(Date.now());
+      queryClient.invalidateQueries({ queryKey: ['socialCampaigns'] });
+      const newId = newCampaign.id || newCampaign.campaign_id;
+      if (newId) {
+        setSelectedCampaignId(newId);
+        setCurrentSlideIndex(0);
+      }
+      setTargetDossierSlug('');
+    },
+  });
+
   // Mutation: Amend payload & re-render PNGs
   const amendMutation = useMutation({
     mutationFn: async () => {
@@ -202,12 +237,10 @@ export function SocialManager() {
     if (!raw) return null;
 
     if (raw.startsWith('http://') || raw.startsWith('https://')) {
-      // If it's a media.politymentor.com or CDN link, append simple cache-buster
       const sep = raw.includes('?') ? '&' : '?';
       return `${raw}${sep}v=${renderTimestamp}`;
     }
 
-    // Relative local server path fallback
     const backendBaseUrl = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
     return `${backendBaseUrl}${raw}?t=${renderTimestamp}`;
   }, [selectedCampaign, currentSlideIndex, renderTimestamp]);
@@ -222,19 +255,39 @@ export function SocialManager() {
             <h1 className="text-lg font-bold text-slate-100">Social Automation Cockpit</h1>
           </div>
           <p className="text-xs text-slate-400 mt-1">
-            Publish verified 6-slide visual carousels for Constitutional Articles and Daily PIB Releases.
+            Automate verified 6-slide visual carousels for Living Dossiers, Articles, and Daily PIB Releases.
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
+          {/* Dossier Trigger Controls */}
+          <div className="flex items-center gap-2 bg-slate-950 p-1 rounded-lg border border-cyan-900/50">
+            <GitFork className="h-3.5 w-3.5 text-cyan-400 ml-2" />
+            <input
+              type="text"
+              value={targetDossierSlug}
+              onChange={(e) => setTargetDossierSlug(e.target.value)}
+              placeholder="e.g. sikkim-governor-appointment..."
+              className="bg-transparent border-none text-xs text-slate-200 px-2 py-1.5 focus:outline-none w-44"
+            />
+            <button
+              onClick={() => generateDossierMutation.mutate()}
+              disabled={generateDossierMutation.isPending || !targetDossierSlug.trim()}
+              className="flex items-center gap-1.5 bg-cyan-700 hover:bg-cyan-600 active:scale-95 text-white px-3 py-1.5 rounded text-xs font-semibold transition disabled:opacity-50"
+            >
+              <RefreshCw className={`h-3 w-3 ${generateDossierMutation.isPending ? 'animate-spin' : ''}`} />
+              {generateDossierMutation.isPending ? 'Synthesizing...' : 'Gen Dossier'}
+            </button>
+          </div>
+
           {/* PIB Trigger Button */}
           <button
             onClick={() => generatePibMutation.mutate()}
             disabled={generatePibMutation.isPending}
-            className="flex items-center gap-2 bg-amber-600 hover:bg-amber-500 active:scale-95 text-white px-4 py-2 rounded-lg text-xs font-semibold transition disabled:opacity-50 shrink-0"
+            className="flex items-center gap-2 bg-amber-600 hover:bg-amber-500 active:scale-95 text-white px-3.5 py-2 rounded-lg text-xs font-semibold transition disabled:opacity-50 shrink-0"
           >
             <Newspaper className={`h-3.5 w-3.5 ${generatePibMutation.isPending ? 'animate-spin' : ''}`} />
-            {generatePibMutation.isPending ? 'Ingesting R2 Note...' : 'Generate Latest PIB Carousel'}
+            {generatePibMutation.isPending ? 'Ingesting...' : 'Gen PIB'}
           </button>
 
           {/* Article Generator Controls */}
@@ -245,7 +298,7 @@ export function SocialManager() {
               value={targetArticleNumber}
               onChange={(e) => setTargetArticleNumber(e.target.value)}
               placeholder="e.g. Article 1"
-              className="bg-transparent border-none text-xs text-slate-200 px-2 py-1.5 focus:outline-none w-28"
+              className="bg-transparent border-none text-xs text-slate-200 px-2 py-1.5 focus:outline-none w-24"
             />
             <select
               value={selectedTier}
@@ -262,7 +315,7 @@ export function SocialManager() {
               className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white px-3 py-1.5 rounded text-xs font-semibold transition disabled:opacity-50"
             >
               <RefreshCw className={`h-3 w-3 ${generateArticleMutation.isPending ? 'animate-spin' : ''}`} />
-              {generateArticleMutation.isPending ? 'Synthesizing...' : 'Generate Article'}
+              {generateArticleMutation.isPending ? '...' : 'Gen Article'}
             </button>
           </div>
         </div>
@@ -311,7 +364,8 @@ export function SocialManager() {
             ) : (
               campaigns.map((camp) => {
                 const isSelected = camp.id === selectedCampaignId;
-                const isPib = camp.article_number.startsWith('PIB:');
+                const isCampDossier = camp.article_number.startsWith('DOSSIER:');
+                const isCampPib = camp.article_number.startsWith('PIB:');
                 const campSlides = Array.isArray(camp.slides_payload)
                   ? camp.slides_payload
                   : (camp.slides_payload as any)?.slides || [];
@@ -331,7 +385,9 @@ export function SocialManager() {
                   >
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-1.5">
-                        {isPib ? (
+                        {isCampDossier ? (
+                          <GitFork className="h-3.5 w-3.5 text-cyan-400" />
+                        ) : isCampPib ? (
                           <Newspaper className="h-3.5 w-3.5 text-amber-400" />
                         ) : (
                           <BookOpen className="h-3.5 w-3.5 text-indigo-400" />
@@ -349,7 +405,7 @@ export function SocialManager() {
                       </span>
                     </div>
                     <p className="text-[11px] text-slate-400 line-clamp-1">
-                      {campSlides[0]?.headline || 'Constitutional Dossier'}
+                      {campSlides[0]?.headline || 'Constitutional Campaign'}
                     </p>
                     <div className="flex items-center justify-between text-[10px] text-slate-500 pt-1">
                       <span className="flex items-center gap-1">
@@ -378,9 +434,17 @@ export function SocialManager() {
                   <span className="text-xs text-slate-400">
                     • Slide {currentSlideIndex + 1} of {totalSlides}
                   </span>
-                  {isPibCampaign && (
+                  {isDossierCampaign ? (
+                    <span className="text-[10px] bg-cyan-950/80 text-cyan-400 border border-cyan-800 px-2 py-0.5 rounded font-medium">
+                      Living Dossier Mode
+                    </span>
+                  ) : isPibCampaign ? (
                     <span className="text-[10px] bg-amber-950/80 text-amber-400 border border-amber-800 px-2 py-0.5 rounded font-medium">
                       PIB Mode
+                    </span>
+                  ) : (
+                    <span className="text-[10px] bg-indigo-950/80 text-indigo-400 border border-indigo-800 px-2 py-0.5 rounded font-medium">
+                      Article Mode
                     </span>
                   )}
                 </div>
@@ -464,13 +528,13 @@ export function SocialManager() {
                       <span>EDIT SLIDE {currentSlideIndex + 1} CONTENT</span>
                     </div>
                     <span className="text-[10px] text-slate-500">
-                      {isPibCampaign ? 'PIB Archetype' : 'Article Archetype'}
+                      {isDossierCampaign ? 'Dossier Archetype' : isPibCampaign ? 'PIB Archetype' : 'Article Archetype'}
                     </span>
                   </div>
 
                   {currentSlideDraft ? (
                     <div className="space-y-3 text-xs">
-                      {/* Common: Tier Badge */}
+                      {/* Common: Category Badge */}
                       <div>
                         <label className="text-[10px] text-slate-400 font-medium block mb-1">
                           Category Badge
@@ -522,17 +586,20 @@ export function SocialManager() {
                         <>
                           <div>
                             <label className="text-[10px] text-slate-400 font-medium block mb-1">
-                              Overview Thesis / Hook
+                              {isDossierCampaign ? 'Genesis Summary' : 'Overview Thesis / Hook'}
                             </label>
                             <textarea
-                              rows={3}
-                              value={currentSlideDraft.thesis || ''}
+                              rows={4}
+                              value={isDossierCampaign ? (currentSlideDraft.summary || '') : (currentSlideDraft.thesis || '')}
                               onChange={(e) =>
-                                setCurrentSlideDraft({ ...currentSlideDraft, thesis: e.target.value })
+                                isDossierCampaign
+                                  ? setCurrentSlideDraft({ ...currentSlideDraft, summary: e.target.value })
+                                  : setCurrentSlideDraft({ ...currentSlideDraft, thesis: e.target.value })
                               }
                               className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs focus:outline-none focus:border-indigo-500"
                             />
                           </div>
+
                           <div>
                             <label className="text-[10px] text-slate-400 font-medium block mb-1">
                               Context Chips (Comma-separated)
@@ -549,27 +616,104 @@ export function SocialManager() {
                               className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs focus:outline-none focus:border-indigo-500"
                             />
                           </div>
+
+                          {isDossierCampaign && (
+                            <div>
+                              <label className="text-[10px] text-slate-400 font-medium block mb-1">
+                                Multi-Update Notice Banner
+                              </label>
+                              <input
+                                type="text"
+                                placeholder="Tracking all X updates • Full graph at politymentor.com"
+                                value={currentSlideDraft.more_updates_notice || ''}
+                                onChange={(e) =>
+                                  setCurrentSlideDraft({ ...currentSlideDraft, more_updates_notice: e.target.value })
+                                }
+                                className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-cyan-300 text-xs focus:outline-none focus:border-cyan-500"
+                              />
+                            </div>
+                          )}
                         </>
                       )}
 
                       {/* ================= SLIDE 2 ================= */}
                       {currentSlideIndex === 1 && (
                         <>
-                          <div>
-                            <label className="text-[10px] text-slate-400 font-medium block mb-1">
-                              {isPibCampaign ? 'Why It Matters Narrative' : 'Jurisprudential Paradox'}
-                            </label>
-                            <textarea
-                              rows={3}
-                              value={currentSlideDraft.analytical_insight || ''}
-                              onChange={(e) =>
-                                setCurrentSlideDraft({ ...currentSlideDraft, analytical_insight: e.target.value })
-                              }
-                              className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs focus:outline-none focus:border-indigo-500"
-                            />
-                          </div>
-                          {!isPibCampaign ? (
+                          {isDossierCampaign ? (
+                            <div className="space-y-2">
+                              <label className="text-[10px] text-slate-400 font-medium block">
+                                Static Constitutional & Statutory Anchors
+                              </label>
+                              {(currentSlideDraft.anchors || []).map((anchor, aIdx) => (
+                                <div key={aIdx} className="space-y-1 bg-slate-900/60 p-2.5 rounded border border-slate-800">
+                                  <input
+                                    type="text"
+                                    value={anchor.title}
+                                    onChange={(e) => {
+                                      const anc = [...(currentSlideDraft.anchors || [])];
+                                      anc[aIdx].title = e.target.value;
+                                      setCurrentSlideDraft({ ...currentSlideDraft, anchors: anc });
+                                    }}
+                                    className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-cyan-400 text-xs font-semibold focus:outline-none"
+                                  />
+                                  <textarea
+                                    rows={2}
+                                    value={anchor.desc}
+                                    onChange={(e) => {
+                                      const anc = [...(currentSlideDraft.anchors || [])];
+                                      anc[aIdx].desc = e.target.value;
+                                      setCurrentSlideDraft({ ...currentSlideDraft, anchors: anc });
+                                    }}
+                                    className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-slate-300 text-xs focus:outline-none"
+                                  />
+                                </div>
+                              ))}
+                            </div>
+                          ) : isPibCampaign ? (
+                            <div className="space-y-2">
+                              <label className="text-[10px] text-slate-400 font-medium block">
+                                Core Policy Directives
+                              </label>
+                              {(currentSlideDraft.points || []).map((pt, pIdx) => (
+                                <div key={pIdx} className="space-y-1 bg-slate-900/60 p-2 rounded border border-slate-800">
+                                  <input
+                                    type="text"
+                                    value={pt.title}
+                                    onChange={(e) => {
+                                      const pts = [...(currentSlideDraft.points || [])];
+                                      pts[pIdx].title = e.target.value;
+                                      setCurrentSlideDraft({ ...currentSlideDraft, points: pts });
+                                    }}
+                                    className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-slate-200 text-xs font-semibold focus:outline-none"
+                                  />
+                                  <textarea
+                                    rows={2}
+                                    value={pt.desc}
+                                    onChange={(e) => {
+                                      const pts = [...(currentSlideDraft.points || [])];
+                                      pts[pIdx].desc = e.target.value;
+                                      setCurrentSlideDraft({ ...currentSlideDraft, points: pts });
+                                    }}
+                                    className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-slate-300 text-xs focus:outline-none"
+                                  />
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
                             <>
+                              <div>
+                                <label className="text-[10px] text-slate-400 font-medium block mb-1">
+                                  Jurisprudential Paradox
+                                </label>
+                                <textarea
+                                  rows={3}
+                                  value={currentSlideDraft.analytical_insight || ''}
+                                  onChange={(e) =>
+                                    setCurrentSlideDraft({ ...currentSlideDraft, analytical_insight: e.target.value })
+                                  }
+                                  className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs focus:outline-none focus:border-indigo-500"
+                                />
+                              </div>
                               <div>
                                 <label className="text-[10px] text-slate-400 font-medium block mb-1">
                                   Colonial Context
@@ -597,36 +741,6 @@ export function SocialManager() {
                                 />
                               </div>
                             </>
-                          ) : (
-                            <div className="space-y-2">
-                              <label className="text-[10px] text-slate-400 font-medium block">
-                                Core Policy & Governance Directives
-                              </label>
-                              {(currentSlideDraft.points || []).map((pt, pIdx) => (
-                                <div key={pIdx} className="space-y-1 bg-slate-900/60 p-2 rounded border border-slate-800">
-                                  <input
-                                    type="text"
-                                    value={pt.title}
-                                    onChange={(e) => {
-                                      const pts = [...(currentSlideDraft.points || [])];
-                                      pts[pIdx].title = e.target.value;
-                                      setCurrentSlideDraft({ ...currentSlideDraft, points: pts });
-                                    }}
-                                    className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-slate-200 text-xs font-semibold focus:outline-none"
-                                  />
-                                  <textarea
-                                    rows={2}
-                                    value={pt.desc}
-                                    onChange={(e) => {
-                                      const pts = [...(currentSlideDraft.points || [])];
-                                      pts[pIdx].desc = e.target.value;
-                                      setCurrentSlideDraft({ ...currentSlideDraft, points: pts });
-                                    }}
-                                    className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-slate-300 text-xs focus:outline-none"
-                                  />
-                                </div>
-                              ))}
-                            </div>
                           )}
                         </>
                       )}
@@ -635,44 +749,102 @@ export function SocialManager() {
                       {currentSlideIndex === 2 && (
                         <div className="space-y-2">
                           <label className="text-[10px] text-slate-400 font-medium block">
-                            {isPibCampaign ? 'Smart Notes Dossier Cards' : 'Landmark Precedent Holdings'}
+                            {isDossierCampaign
+                              ? 'Dispute Timeline Event Nodes'
+                              : isPibCampaign
+                              ? 'Smart Notes Dossier Cards'
+                              : 'Landmark Precedent Holdings'}
                           </label>
-                          {(isPibCampaign ? currentSlideDraft.notes || [] : currentSlideDraft.points || []).map((item, idx) => (
-                            <div key={idx} className="space-y-1 bg-slate-900/60 p-2.5 rounded border border-slate-800">
-                              <input
-                                type="text"
-                                value={item.title}
-                                onChange={(e) => {
-                                  if (isPibCampaign) {
-                                    const n = [...(currentSlideDraft.notes || [])];
-                                    n[idx].title = e.target.value;
-                                    setCurrentSlideDraft({ ...currentSlideDraft, notes: n });
-                                  } else {
-                                    const p = [...(currentSlideDraft.points || [])];
-                                    p[idx].title = e.target.value;
-                                    setCurrentSlideDraft({ ...currentSlideDraft, points: p });
-                                  }
-                                }}
-                                className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-slate-200 text-xs font-semibold focus:outline-none focus:border-indigo-500"
-                              />
-                              <textarea
-                                rows={2}
-                                value={item.desc}
-                                onChange={(e) => {
-                                  if (isPibCampaign) {
-                                    const n = [...(currentSlideDraft.notes || [])];
-                                    n[idx].desc = e.target.value;
-                                    setCurrentSlideDraft({ ...currentSlideDraft, notes: n });
-                                  } else {
-                                    const p = [...(currentSlideDraft.points || [])];
-                                    p[idx].desc = e.target.value;
-                                    setCurrentSlideDraft({ ...currentSlideDraft, points: p });
-                                  }
-                                }}
-                                className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-slate-300 text-xs focus:outline-none focus:border-indigo-500"
-                              />
-                            </div>
-                          ))}
+
+                          {isDossierCampaign ? (
+                            (currentSlideDraft.nodes || []).map((node, nIdx) => (
+                              <div key={nIdx} className="space-y-1.5 bg-slate-900/60 p-2.5 rounded border border-slate-800">
+                                <div className="grid grid-cols-2 gap-2">
+                                  <input
+                                    type="text"
+                                    placeholder="Date (e.g. 2026-10-18)"
+                                    value={node.date || ''}
+                                    onChange={(e) => {
+                                      const nds = [...(currentSlideDraft.nodes || [])];
+                                      nds[nIdx].date = e.target.value;
+                                      setCurrentSlideDraft({ ...currentSlideDraft, nodes: nds });
+                                    }}
+                                    className="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-amber-400 text-xs focus:outline-none"
+                                  />
+                                  <input
+                                    type="text"
+                                    placeholder="Publication (e.g. THE_HINDU)"
+                                    value={node.publication || ''}
+                                    onChange={(e) => {
+                                      const nds = [...(currentSlideDraft.nodes || [])];
+                                      nds[nIdx].publication = e.target.value;
+                                      setCurrentSlideDraft({ ...currentSlideDraft, nodes: nds });
+                                    }}
+                                    className="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-amber-400 text-xs focus:outline-none"
+                                  />
+                                </div>
+                                <input
+                                  type="text"
+                                  placeholder="Milestone Title"
+                                  value={node.title}
+                                  onChange={(e) => {
+                                    const nds = [...(currentSlideDraft.nodes || [])];
+                                    nds[nIdx].title = e.target.value;
+                                    setCurrentSlideDraft({ ...currentSlideDraft, nodes: nds });
+                                  }}
+                                  className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-slate-200 text-xs font-semibold focus:outline-none"
+                                />
+                                <textarea
+                                  rows={2}
+                                  placeholder="Event description..."
+                                  value={node.body}
+                                  onChange={(e) => {
+                                    const nds = [...(currentSlideDraft.nodes || [])];
+                                    nds[nIdx].body = e.target.value;
+                                    setCurrentSlideDraft({ ...currentSlideDraft, nodes: nds });
+                                  }}
+                                  className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-slate-300 text-xs focus:outline-none"
+                                />
+                              </div>
+                            ))
+                          ) : (
+                            (isPibCampaign ? currentSlideDraft.notes || [] : currentSlideDraft.points || []).map((item, idx) => (
+                              <div key={idx} className="space-y-1 bg-slate-900/60 p-2.5 rounded border border-slate-800">
+                                <input
+                                  type="text"
+                                  value={item.title}
+                                  onChange={(e) => {
+                                    if (isPibCampaign) {
+                                      const n = [...(currentSlideDraft.notes || [])];
+                                      n[idx].title = e.target.value;
+                                      setCurrentSlideDraft({ ...currentSlideDraft, notes: n });
+                                    } else {
+                                      const p = [...(currentSlideDraft.points || [])];
+                                      p[idx].title = e.target.value;
+                                      setCurrentSlideDraft({ ...currentSlideDraft, points: p });
+                                    }
+                                  }}
+                                  className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-slate-200 text-xs font-semibold focus:outline-none focus:border-indigo-500"
+                                />
+                                <textarea
+                                  rows={2}
+                                  value={item.desc}
+                                  onChange={(e) => {
+                                    if (isPibCampaign) {
+                                      const n = [...(currentSlideDraft.notes || [])];
+                                      n[idx].desc = e.target.value;
+                                      setCurrentSlideDraft({ ...currentSlideDraft, notes: n });
+                                    } else {
+                                      const p = [...(currentSlideDraft.points || [])];
+                                      p[idx].desc = e.target.value;
+                                      setCurrentSlideDraft({ ...currentSlideDraft, points: p });
+                                    }
+                                  }}
+                                  className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-slate-300 text-xs focus:outline-none focus:border-indigo-500"
+                                />
+                              </div>
+                            ))
+                          )}
                         </div>
                       )}
 
@@ -680,26 +852,29 @@ export function SocialManager() {
                       {currentSlideIndex === 3 && (
                         <div className="space-y-2">
                           <label className="text-[10px] text-slate-400 font-medium block">
-                            {isPibCampaign ? 'Backward Linkages (2-Col Badges)' : 'Procedural Traps Matrix'}
+                            {isDossierCampaign
+                              ? 'Legal Ramifications & Institutional Impact'
+                              : isPibCampaign
+                              ? 'Backward Linkages (2-Col Badges)'
+                              : 'Procedural Traps Matrix'}
                           </label>
-                          {isPibCampaign ? (
+
+                          {isDossierCampaign || isPibCampaign ? (
                             (currentSlideDraft.points || []).map((pt, pIdx) => (
                               <div key={pIdx} className="space-y-1 bg-slate-900/60 p-2 rounded border border-slate-800">
                                 <input
                                   type="text"
                                   value={pt.title}
-                                  placeholder="e.g. Article 15(4)"
                                   onChange={(e) => {
                                     const pts = [...(currentSlideDraft.points || [])];
                                     pts[pIdx].title = e.target.value;
                                     setCurrentSlideDraft({ ...currentSlideDraft, points: pts });
                                   }}
-                                  className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-slate-200 text-xs font-semibold focus:outline-none"
+                                  className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-amber-400 text-xs font-semibold focus:outline-none"
                                 />
-                                <input
-                                  type="text"
+                                <textarea
+                                  rows={2}
                                   value={pt.desc}
-                                  placeholder="Brief description"
                                   onChange={(e) => {
                                     const pts = [...(currentSlideDraft.points || [])];
                                     pts[pIdx].desc = e.target.value;
@@ -751,7 +926,36 @@ export function SocialManager() {
                       {/* ================= SLIDE 5 ================= */}
                       {currentSlideIndex === 4 && (
                         <div className="space-y-3">
-                          {isPibCampaign ? (
+                          {isDossierCampaign ? (
+                            <>
+                              <div>
+                                <label className="text-[10px] text-cyan-400 font-semibold block mb-1">
+                                  The Constitutional Thesis (State / Authority Mandate)
+                                </label>
+                                <textarea
+                                  rows={4}
+                                  value={currentSlideDraft.thesis || ''}
+                                  onChange={(e) =>
+                                    setCurrentSlideDraft({ ...currentSlideDraft, thesis: e.target.value })
+                                  }
+                                  className="w-full bg-slate-900 border border-cyan-800/80 rounded px-2.5 py-1.5 text-slate-200 text-xs focus:outline-none focus:border-cyan-500"
+                                />
+                              </div>
+                              <div>
+                                <label className="text-[10px] text-amber-400 font-semibold block mb-1">
+                                  The Dialectical Critique (Constitutional Test)
+                                </label>
+                                <textarea
+                                  rows={4}
+                                  value={currentSlideDraft.critique || ''}
+                                  onChange={(e) =>
+                                    setCurrentSlideDraft({ ...currentSlideDraft, critique: e.target.value })
+                                  }
+                                  className="w-full bg-slate-900 border border-amber-800/80 rounded px-2.5 py-1.5 text-slate-200 text-xs focus:outline-none focus:border-amber-500"
+                                />
+                              </div>
+                            </>
+                          ) : isPibCampaign ? (
                             <>
                               <div>
                                 <label className="text-[10px] text-slate-400 font-medium block mb-1">
