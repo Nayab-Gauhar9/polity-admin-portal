@@ -39,26 +39,17 @@ export function PrelimsTrapManager() {
   const [targetInput, setTargetInput] = useState<string>('1');
   const [selectedFormat, setSelectedFormat] = useState<string>('STATEMENT_I_II');
 
-  // Editable draft states
-  const [questionStemDraft, setQuestionStemDraft] = useState<string>('');
-  const [correctOptionDraft, setCorrectOptionDraft] = useState<string>('B');
-  const [eliminationHeuristicDraft, setEliminationHeuristicDraft] = useState<string>('');
+  // Unified Draft State mirroring the flat trap payload
+  const [trapDraft, setTrapDraft] = useState<any>(null);
   const [captionDraft, setCaptionDraft] = useState<string>('');
 
-  // Fetch queue specifically for traps (article_number starting with TRAP:)
+  // Fetch queue specifically for traps
   const { data: campaigns = [], isLoading, isError, error } = useQuery<TrapCampaign[]>({
     queryKey: ['trapCampaigns', filterSource],
     queryFn: async () => {
       const res = await apiClient.get('/api/admin/social/queue?status=ALL');
       const allCamps: TrapCampaign[] = res.data;
-      const traps = allCamps.filter((c) => c.article_number?.startsWith('TRAP:'));
-      
-      if (filterSource === 'ALL') return traps;
-      return traps.filter((c) => {
-        const payload = c.slides_payload || {};
-        const srcType = payload.source_type || '';
-        return srcType.toUpperCase() === filterSource;
-      });
+      return allCamps.filter((c) => c.article_number?.startsWith('TRAP:'));
     },
   });
 
@@ -72,25 +63,18 @@ export function PrelimsTrapManager() {
 
   const selectedCampaign = campaigns.find((c) => c.id === selectedCampaignId);
 
-  // Sync drafts when selected campaign changes
+  // Sync draft state when selected campaign changes
   useEffect(() => {
     if (selectedCampaign) {
       setCaptionDraft(selectedCampaign.caption || '');
-      const payload = selectedCampaign.slides_payload;
-      if (payload) {
-        setQuestionStemDraft(payload.question_stem || '');
-        setCorrectOptionDraft(payload.correct_option || 'B');
-        setEliminationHeuristicDraft(payload.elimination_heuristic || '');
-      }
+      setTrapDraft(JSON.parse(JSON.stringify(selectedCampaign.slides_payload || {})));
     } else {
       setCaptionDraft('');
-      setQuestionStemDraft('');
-      setCorrectOptionDraft('B');
-      setEliminationHeuristicDraft('');
+      setTrapDraft(null);
     }
   }, [selectedCampaign]);
 
-  const totalSlides = 4; // Distractor traps are always 4 slides
+  const totalSlides = 4;
 
   // Mutation: Generate Trap
   const generateTrapMutation = useMutation({
@@ -127,17 +111,10 @@ export function PrelimsTrapManager() {
   // Mutation: Amend payload & re-render PNGs
   const amendMutation = useMutation({
     mutationFn: async () => {
-      if (!selectedCampaign) return;
-      
-      const updatedPayload = {
-        ...selectedCampaign.slides_payload,
-        question_stem: questionStemDraft,
-        correct_option: correctOptionDraft,
-        elimination_heuristic: eliminationHeuristicDraft,
-      };
+      if (!selectedCampaign || !trapDraft) return;
 
       const res = await apiClient.put(`/api/admin/social/queue/${selectedCampaign.id}/amend`, {
-        slides_payload: updatedPayload,
+        slides_payload: trapDraft,
         caption: captionDraft,
       });
       return res.data;
@@ -191,7 +168,6 @@ export function PrelimsTrapManager() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5 w-full xl:w-auto">
-          {/* Trap Source Selector */}
           <div className="flex flex-wrap items-center gap-2 bg-slate-950 p-1.5 rounded-lg border border-slate-800 w-full xl:w-auto">
             <select
               value={trapType}
@@ -321,21 +297,21 @@ export function PrelimsTrapManager() {
 
         {/* Right Column: Slide Preview & Inspector Form (8 cols) */}
         <div className="lg:col-span-8 space-y-4">
-          {selectedCampaign ? (
+          {selectedCampaign && trapDraft ? (
             <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-5 space-y-5">
               {/* Cockpit Actions Header */}
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-4">
                 <div>
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-bold text-slate-100">
-                      {selectedCampaign.slides_payload?.topic || selectedCampaign.title}
+                      {trapDraft.topic || selectedCampaign.title}
                     </span>
                     <span className="text-xs text-amber-400 font-mono">
                       • Slide {currentSlideIndex + 1} of 4
                     </span>
                   </div>
                   <p className="text-[11px] text-slate-400 mt-0.5">
-                    Archetype: <span className="text-slate-200 font-semibold">{selectedCampaign.slides_payload?.trap_archetype}</span>
+                    Archetype: <span className="text-slate-200 font-semibold">{trapDraft.trap_archetype}</span>
                   </p>
                 </div>
 
@@ -410,20 +386,20 @@ export function PrelimsTrapManager() {
                   </div>
                 </div>
 
-                {/* Adaptive Trap Inspector & Editor */}
+                {/* Fully Editable Trap Inspector & Editor */}
                 <div className="space-y-3 bg-slate-950/80 p-4 rounded-lg border border-slate-800 max-h-[580px] overflow-y-auto">
                   <div className="flex items-center justify-between border-b border-slate-800 pb-2">
                     <div className="flex items-center gap-1.5 text-xs font-bold text-slate-200">
                       <Edit3 className="h-3.5 w-3.5 text-amber-400" />
-                      <span>INSPECT & EDIT SLIDE {currentSlideIndex + 1}</span>
+                      <span>EDIT SLIDE {currentSlideIndex + 1} CONTENT</span>
                     </div>
                     <span className="text-[10px] text-amber-400/80 bg-amber-950/40 px-2 py-0.5 rounded font-mono">
-                      {selectedCampaign.slides_payload?.question_format}
+                      {trapDraft.question_format}
                     </span>
                   </div>
 
                   <div className="space-y-3 text-xs">
-                    {/* Slide 1 Controls: Question Stem & Correct Option */}
+                    {/* Slide 1: Question Stem, Correct Option, & Statements */}
                     {currentSlideIndex === 0 && (
                       <>
                         <div>
@@ -432,8 +408,10 @@ export function PrelimsTrapManager() {
                           </label>
                           <textarea
                             rows={3}
-                            value={questionStemDraft}
-                            onChange={(e) => setQuestionStemDraft(e.target.value)}
+                            value={trapDraft.question_stem || ''}
+                            onChange={(e) =>
+                              setTrapDraft({ ...trapDraft, question_stem: e.target.value })
+                            }
                             className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs focus:outline-none focus:border-amber-500"
                           />
                         </div>
@@ -445,32 +423,56 @@ export function PrelimsTrapManager() {
                           <input
                             type="text"
                             maxLength={1}
-                            value={correctOptionDraft}
-                            onChange={(e) => setCorrectOptionDraft(e.target.value.toUpperCase())}
+                            value={trapDraft.correct_option || 'B'}
+                            onChange={(e) =>
+                              setTrapDraft({ ...trapDraft, correct_option: e.target.value.toUpperCase() })
+                            }
                             className="w-16 bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-amber-400 font-bold text-center text-xs focus:outline-none focus:border-amber-500"
                           />
                         </div>
 
-                        <div className="bg-slate-900/50 p-3 rounded border border-slate-800 space-y-1">
-                          <span className="text-[10px] text-slate-400 font-semibold block">
-                            Statements Payload Preview:
+                        {/* Interactive Statement Editors */}
+                        <div className="space-y-3 pt-3 border-t border-slate-800">
+                          <span className="text-[10px] text-amber-400 font-semibold block">
+                            Edit Statements / Items:
                           </span>
-                          <pre className="text-[10px] text-slate-300 font-mono whitespace-pre-wrap max-h-36 overflow-y-auto">
-                            {JSON.stringify(selectedCampaign.slides_payload?.statements_payload, null, 2)}
-                          </pre>
+                          {trapDraft.statements_payload &&
+                          Object.keys(trapDraft.statements_payload).filter((k) => k !== 'format').length > 0 ? (
+                            Object.keys(trapDraft.statements_payload)
+                              .filter((k) => k !== 'format')
+                              .map((k) => {
+                                const val = trapDraft.statements_payload[k];
+                                return (
+                                  <div key={k} className="space-y-1">
+                                    <label className="text-[9px] text-slate-400 uppercase font-mono">{k}</label>
+                                    <textarea
+                                      rows={2}
+                                      value={typeof val === 'string' ? val : JSON.stringify(val)}
+                                      onChange={(e) => {
+                                        const updatedStmts = { ...trapDraft.statements_payload, [k]: e.target.value };
+                                        setTrapDraft({ ...trapDraft, statements_payload: updatedStmts });
+                                      }}
+                                      className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs focus:outline-none focus:border-amber-500"
+                                    />
+                                  </div>
+                                );
+                              })
+                          ) : (
+                            <p className="text-[10px] text-slate-500">No statements found in payload.</p>
+                          )}
                         </div>
                       </>
                     )}
 
-                    {/* Slide 2 Controls: Verdict & Cognitive Blindspot */}
+                    {/* Slide 2: Verdict & Cognitive Blindspot */}
                     {currentSlideIndex === 1 && (
                       <div className="space-y-3">
                         <div className="bg-indigo-950/30 p-2.5 rounded border border-indigo-900/50">
                           <span className="text-[10px] text-indigo-300 font-bold block mb-1">
-                            Correct Answer Option ({selectedCampaign.slides_payload?.correct_option}):
+                            Correct Answer Option ({trapDraft.correct_option}):
                           </span>
                           <p className="text-xs text-slate-200">
-                            {selectedCampaign.slides_payload?.options?.[selectedCampaign.slides_payload?.correct_option]}
+                            {trapDraft.options?.[trapDraft.correct_option]}
                           </p>
                         </div>
 
@@ -480,16 +482,39 @@ export function PrelimsTrapManager() {
                           </label>
                           <textarea
                             rows={4}
-                            value={selectedCampaign.slides_payload?.conceptual_analysis?.why_candidates_falter || ''}
-                            disabled
-                            className="w-full bg-slate-900/60 border border-slate-800 rounded px-2.5 py-1.5 text-slate-300 text-xs cursor-not-allowed"
+                            value={trapDraft.conceptual_analysis?.why_candidates_falter || ''}
+                            onChange={(e) => {
+                              const updatedAnalysis = {
+                                ...(trapDraft.conceptual_analysis || {}),
+                                why_candidates_falter: e.target.value,
+                              };
+                              setTrapDraft({ ...trapDraft, conceptual_analysis: updatedAnalysis });
+                            }}
+                            className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs focus:outline-none focus:border-amber-500"
                           />
-                          <p className="text-[9px] text-slate-500 mt-1">Generated by Groq 120B (Grounding Verified)</p>
+                        </div>
+
+                        <div>
+                          <label className="text-[10px] text-slate-400 font-medium block mb-1">
+                            Forensic Deconstruction
+                          </label>
+                          <textarea
+                            rows={4}
+                            value={trapDraft.conceptual_analysis?.distractor_dissection || ''}
+                            onChange={(e) => {
+                              const updatedAnalysis = {
+                                ...(trapDraft.conceptual_analysis || {}),
+                                distractor_dissection: e.target.value,
+                              };
+                              setTrapDraft({ ...trapDraft, conceptual_analysis: updatedAnalysis });
+                            }}
+                            className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs focus:outline-none focus:border-amber-500"
+                          />
                         </div>
                       </div>
                     )}
 
-                    {/* Slide 3 Controls: Jurisprudence & Legal Ratio */}
+                    {/* Slide 3: Jurisprudence & Legal Ratio */}
                     {currentSlideIndex === 2 && (
                       <div className="space-y-3">
                         <div>
@@ -498,9 +523,15 @@ export function PrelimsTrapManager() {
                           </label>
                           <input
                             type="text"
-                            value={selectedCampaign.slides_payload?.conceptual_analysis?.core_constitutional_doctrine || ''}
-                            disabled
-                            className="w-full bg-slate-900/60 border border-slate-800 rounded px-2.5 py-1.5 text-amber-400 text-xs cursor-not-allowed"
+                            value={trapDraft.conceptual_analysis?.core_constitutional_doctrine || ''}
+                            onChange={(e) => {
+                              const updatedAnalysis = {
+                                ...(trapDraft.conceptual_analysis || {}),
+                                core_constitutional_doctrine: e.target.value,
+                              };
+                              setTrapDraft({ ...trapDraft, conceptual_analysis: updatedAnalysis });
+                            }}
+                            className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-amber-400 text-xs focus:outline-none focus:border-amber-500"
                           />
                         </div>
 
@@ -510,15 +541,35 @@ export function PrelimsTrapManager() {
                           </label>
                           <textarea
                             rows={4}
-                            value={selectedCampaign.slides_payload?.conceptual_analysis?.substantive_legal_holding || ''}
-                            disabled
-                            className="w-full bg-slate-900/60 border border-slate-800 rounded px-2.5 py-1.5 text-slate-300 text-xs cursor-not-allowed"
+                            value={trapDraft.conceptual_analysis?.substantive_legal_holding || ''}
+                            onChange={(e) => {
+                              const updatedAnalysis = {
+                                ...(trapDraft.conceptual_analysis || {}),
+                                substantive_legal_holding: e.target.value,
+                              };
+                              setTrapDraft({ ...trapDraft, conceptual_analysis: updatedAnalysis });
+                            }}
+                            className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs focus:outline-none focus:border-amber-500"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="text-[10px] text-slate-400 font-medium block mb-1">
+                            Source Citation
+                          </label>
+                          <input
+                            type="text"
+                            value={trapDraft.source_citation || ''}
+                            onChange={(e) =>
+                              setTrapDraft({ ...trapDraft, source_citation: e.target.value })
+                            }
+                            className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs focus:outline-none focus:border-amber-500"
                           />
                         </div>
                       </div>
                     )}
 
-                    {/* Slide 4 Controls: Exam Heuristic */}
+                    {/* Slide 4: Exam Heuristic */}
                     {currentSlideIndex === 3 && (
                       <div className="space-y-3">
                         <div>
@@ -527,8 +578,10 @@ export function PrelimsTrapManager() {
                           </label>
                           <textarea
                             rows={5}
-                            value={eliminationHeuristicDraft}
-                            onChange={(e) => setEliminationHeuristicDraft(e.target.value)}
+                            value={trapDraft.elimination_heuristic || ''}
+                            onChange={(e) =>
+                              setTrapDraft({ ...trapDraft, elimination_heuristic: e.target.value })
+                            }
                             className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs focus:outline-none focus:border-amber-500"
                           />
                         </div>
