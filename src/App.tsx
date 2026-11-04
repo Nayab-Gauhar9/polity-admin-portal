@@ -12,7 +12,8 @@ import {
   X,
   LogOut,
   Scale,
-  Sparkles
+  Sparkles,
+  ShieldAlert
 } from 'lucide-react';
 import { CacheManager } from '@/components/CacheManager';
 import { UserManager } from '@/components/UserManager';
@@ -22,11 +23,12 @@ import { ArticleManager } from '@/components/ArticleManager';
 import { PYQManager } from '@/components/PYQManager';
 import { PressManager } from '@/components/PressManager';
 import { SocialManager } from '@/components/SocialManager';
+import { PrelimsTrapManager } from '@/components/PrelimsTrapManager';
 import { LoginScreen } from '@/components/LoginScreen';
 
 const queryClient = new QueryClient();
 
-type TabType = 'reports' | 'users' | 'pyqs' | 'articles' | 'dossiers' | 'social' | 'press' | 'cache';
+type TabType = 'reports' | 'users' | 'pyqs' | 'articles' | 'dossiers' | 'social' | 'traps' | 'press' | 'cache';
 
 function BrandLogo({ size = 'h-10 w-10' }: { size?: string }) {
   const [imgSrc, setImgSrc] = useState('/logo.png');
@@ -34,7 +36,6 @@ function BrandLogo({ size = 'h-10 w-10' }: { size?: string }) {
 
   const handleError = () => {
     if (imgSrc === '/logo.png') {
-      // In Windows, saving as logo.png with extensions hidden creates logo.png.png
       setImgSrc('/logo.png.png');
     } else {
       setLoadFailed(true);
@@ -90,6 +91,7 @@ export default function App() {
     { id: 'articles' as const, label: 'Articles & Bare Act', icon: BookOpen },
     { id: 'dossiers' as const, label: 'Living Dossiers', icon: FileText },
     { id: 'social' as const, label: 'Social Automation', icon: Sparkles },
+    { id: 'traps' as const, label: 'Prelims Traps', icon: ShieldAlert },
     { id: 'press' as const, label: 'Press Ingestion ETL', icon: Newspaper },
     { id: 'cache' as const, label: 'Cache & Systems', icon: Database },
   ];
@@ -99,7 +101,6 @@ export default function App() {
     setMobileMenuOpen(false);
   };
 
-  // Render Login Gatekeeper if unauthenticated
   if (!authToken) {
     return <LoginScreen onLoginSuccess={handleLoginSuccess} />;
   }
@@ -211,6 +212,7 @@ export default function App() {
             {activeTab === 'articles' && <ArticleManager />}
             {activeTab === 'dossiers' && <DossierManager />}
             {activeTab === 'social' && <SocialManager />}
+            {activeTab === 'traps' && <PrelimsTrapManager />}
             {activeTab === 'press' && <PressManager />}
             {activeTab === 'cache' && <CacheManager />}
           </div>
