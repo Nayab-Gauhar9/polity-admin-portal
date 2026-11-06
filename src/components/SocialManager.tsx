@@ -23,7 +23,7 @@ interface SlideItem {
   tier_badge: string;
   headline: string;
   subheadline?: string;
-  chips?: string[];
+  chips?: Array<string | { article?: string; title?: string; tagline?: string; desc?: string }>;
   
   // Dossier-specific
   summary?: string;
@@ -32,6 +32,7 @@ interface SlideItem {
   anchors?: Array<{ title: string; desc: string }>;
   nodes?: Array<{ date?: string; publication?: string; title: string; body: string }>;
   thesis?: string;
+  core_hook?: string;
   critique?: string;
 
   // Article-wise specific
@@ -47,6 +48,7 @@ interface SlideItem {
   points?: Array<{ title: string; desc: string }>;
   rows?: Array<{ param: string; rule: string; trap: string }>;
   mains_question?: string;
+  full_summary?: string;
 
   // Shared Slide 6
   pitch?: string;
@@ -590,31 +592,72 @@ export function SocialManager() {
                             </label>
                             <textarea
                               rows={4}
-                              value={isDossierCampaign ? (currentSlideDraft.summary || '') : (currentSlideDraft.thesis || '')}
-                              onChange={(e) =>
+                              value={
                                 isDossierCampaign
-                                  ? setCurrentSlideDraft({ ...currentSlideDraft, summary: e.target.value })
-                                  : setCurrentSlideDraft({ ...currentSlideDraft, thesis: e.target.value })
+                                  ? (currentSlideDraft.summary || '')
+                                  : (currentSlideDraft.thesis || (currentSlideDraft as any).core_hook || '')
                               }
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                if (isDossierCampaign) {
+                                  setCurrentSlideDraft({ ...currentSlideDraft, summary: val });
+                                } else {
+                                  setCurrentSlideDraft({
+                                    ...currentSlideDraft,
+                                    thesis: val,
+                                    core_hook: val,
+                                  } as any);
+                                }
+                              }}
                               className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs focus:outline-none focus:border-indigo-500"
                             />
                           </div>
 
-                          <div>
-                            <label className="text-[10px] text-slate-400 font-medium block mb-1">
-                              Context Chips (Comma-separated)
+                          {/* Chips / Anchor Capsules Editor (handles both strings and objects cleanly) */}
+                          <div className="space-y-2">
+                            <label className="text-[10px] text-slate-400 font-medium block">
+                              Constitutional Anchor Capsules (3 max)
                             </label>
-                            <input
-                              type="text"
-                              value={(currentSlideDraft.chips || []).join(', ')}
-                              onChange={(e) =>
-                                setCurrentSlideDraft({
-                                  ...currentSlideDraft,
-                                  chips: e.target.value.split(',').map((c) => c.trim()).filter(Boolean),
-                                })
-                              }
-                              className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs focus:outline-none focus:border-indigo-500"
-                            />
+                            {(currentSlideDraft.chips || []).map((chip: any, cIdx: number) => {
+                              const isObj = typeof chip === 'object' && chip !== null;
+                              const chipTitle = isObj ? (chip.article || chip.title || '') : String(chip);
+                              const chipTagline = isObj ? (chip.tagline || chip.desc || '') : '';
+
+                              return (
+                                <div key={cIdx} className="space-y-1 bg-slate-900/60 p-2 rounded border border-slate-800">
+                                  <input
+                                    type="text"
+                                    placeholder="Anchor Title (e.g. Article 326)"
+                                    value={chipTitle}
+                                    onChange={(e) => {
+                                      const updated = [...(currentSlideDraft.chips || [])];
+                                      if (isObj) {
+                                        updated[cIdx] = { ...chip, article: e.target.value, title: e.target.value };
+                                      } else {
+                                        updated[cIdx] = e.target.value;
+                                      }
+                                      setCurrentSlideDraft({ ...currentSlideDraft, chips: updated });
+                                    }}
+                                    className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-cyan-400 text-xs font-semibold focus:outline-none"
+                                  />
+                                  <input
+                                    type="text"
+                                    placeholder="Subtitle / Tagline (e.g. Universal Adult Franchise)"
+                                    value={chipTagline}
+                                    onChange={(e) => {
+                                      const updated = [...(currentSlideDraft.chips || [])];
+                                      if (isObj) {
+                                        updated[cIdx] = { ...chip, tagline: e.target.value, desc: e.target.value };
+                                      } else {
+                                        updated[cIdx] = { article: chipTitle, tagline: e.target.value };
+                                      }
+                                      setCurrentSlideDraft({ ...currentSlideDraft, chips: updated });
+                                    }}
+                                    className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-slate-300 text-xs focus:outline-none"
+                                  />
+                                </div>
+                              );
+                            })}
                           </div>
 
                           {isDossierCampaign && (
@@ -670,34 +713,33 @@ export function SocialManager() {
                               ))}
                             </div>
                           ) : isPibCampaign ? (
-                            <div className="space-y-2">
-                              <label className="text-[10px] text-slate-400 font-medium block">
-                                Core Policy Directives
-                              </label>
-                              {(currentSlideDraft.points || []).map((pt, pIdx) => (
-                                <div key={pIdx} className="space-y-1 bg-slate-900/60 p-2 rounded border border-slate-800">
-                                  <input
-                                    type="text"
-                                    value={pt.title}
-                                    onChange={(e) => {
-                                      const pts = [...(currentSlideDraft.points || [])];
-                                      pts[pIdx].title = e.target.value;
-                                      setCurrentSlideDraft({ ...currentSlideDraft, points: pts });
-                                    }}
-                                    className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-slate-200 text-xs font-semibold focus:outline-none"
-                                  />
-                                  <textarea
-                                    rows={2}
-                                    value={pt.desc}
-                                    onChange={(e) => {
-                                      const pts = [...(currentSlideDraft.points || [])];
-                                      pts[pIdx].desc = e.target.value;
-                                      setCurrentSlideDraft({ ...currentSlideDraft, points: pts });
-                                    }}
-                                    className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-slate-300 text-xs focus:outline-none"
-                                  />
-                                </div>
-                              ))}
+                            <div className="space-y-3">
+                              <div>
+                                <label className="text-[10px] text-slate-400 font-medium block mb-1">
+                                  PIB Executive Context (Full Summary)
+                                </label>
+                                <textarea
+                                  rows={5}
+                                  value={currentSlideDraft.full_summary || ''}
+                                  onChange={(e) =>
+                                    setCurrentSlideDraft({ ...currentSlideDraft, full_summary: e.target.value })
+                                  }
+                                  className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs focus:outline-none focus:border-indigo-500"
+                                />
+                              </div>
+                              <div>
+                                <label className="text-[10px] text-slate-400 font-medium block mb-1">
+                                  Strategic UPSC Value Analysis
+                                </label>
+                                <textarea
+                                  rows={5}
+                                  value={currentSlideDraft.analytical_insight || ''}
+                                  onChange={(e) =>
+                                    setCurrentSlideDraft({ ...currentSlideDraft, analytical_insight: e.target.value })
+                                  }
+                                  className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs focus:outline-none focus:border-indigo-500"
+                                />
+                              </div>
                             </div>
                           ) : (
                             <>
