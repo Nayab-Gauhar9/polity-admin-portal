@@ -13,7 +13,8 @@ import {
   LogOut,
   Scale,
   Sparkles,
-  ShieldAlert
+  ShieldAlert,
+  Sparkle
 } from 'lucide-react';
 import { CacheManager } from '@/components/CacheManager';
 import { UserManager } from '@/components/UserManager';
@@ -24,11 +25,12 @@ import { PYQManager } from '@/components/PYQManager';
 import { PressManager } from '@/components/PressManager';
 import { SocialManager } from '@/components/SocialManager';
 import { PrelimsTrapManager } from '@/components/PrelimsTrapManager';
+import SmartNotesStudio from '@/components/SmartNotesStudio';
 import { LoginScreen } from '@/components/LoginScreen';
 
 const queryClient = new QueryClient();
 
-type TabType = 'reports' | 'users' | 'pyqs' | 'articles' | 'dossiers' | 'social' | 'traps' | 'press' | 'cache';
+type TabType = 'reports' | 'users' | 'pyqs' | 'articles' | 'dossiers' | 'social' | 'traps' | 'smart-notes' | 'press' | 'cache';
 
 function BrandLogo({ size = 'h-10 w-10' }: { size?: string }) {
   const [imgSrc, setImgSrc] = useState('/logo.png');
@@ -92,6 +94,7 @@ export default function App() {
     { id: 'dossiers' as const, label: 'Living Dossiers', icon: FileText },
     { id: 'social' as const, label: 'Social Automation', icon: Sparkles },
     { id: 'traps' as const, label: 'Prelims Traps', icon: ShieldAlert },
+    { id: 'smart-notes' as const, label: 'Smart Notes Studio', icon: Sparkle },
     { id: 'press' as const, label: 'Press Ingestion ETL', icon: Newspaper },
     { id: 'cache' as const, label: 'Cache & Systems', icon: Database },
   ];
@@ -194,7 +197,7 @@ export default function App() {
             <div className="flex items-center gap-2 text-sm text-slate-400">
               <span>Admin</span>
               <span>/</span>
-              <span className="capitalize font-semibold text-slate-200">{activeTab}</span>
+              <span className="capitalize font-semibold text-slate-200">{activeTab.replace('-', ' ')}</span>
             </div>
             <button
               onClick={handleLogout}
@@ -205,7 +208,7 @@ export default function App() {
             </button>
           </header>
 
-          <div className="p-4 sm:p-6 lg:p-8 max-w-[1600px] w-full mx-auto">
+          <div className={activeTab === 'smart-notes' ? 'w-full h-[calc(100vh-4rem)] p-0' : 'p-4 sm:p-6 lg:p-8 max-w-[1600px] w-full mx-auto'}>
             {activeTab === 'reports' && <ReportManager />}
             {activeTab === 'users' && <UserManager />}
             {activeTab === 'pyqs' && <PYQManager />}
@@ -213,6 +216,7 @@ export default function App() {
             {activeTab === 'dossiers' && <DossierManager />}
             {activeTab === 'social' && <SocialManager />}
             {activeTab === 'traps' && <PrelimsTrapManager />}
+            {activeTab === 'smart-notes' && <SmartNotesStudio />}
             {activeTab === 'press' && <PressManager />}
             {activeTab === 'cache' && <CacheManager />}
           </div>
