@@ -14,7 +14,8 @@ import {
   Scale,
   Sparkles,
   ShieldAlert,
-  Sparkle
+  Sparkle,
+  BarChart3
 } from 'lucide-react';
 import { CacheManager } from '@/components/CacheManager';
 import { UserManager } from '@/components/UserManager';
@@ -26,11 +27,23 @@ import { PressManager } from '@/components/PressManager';
 import { SocialManager } from '@/components/SocialManager';
 import { PrelimsTrapManager } from '@/components/PrelimsTrapManager';
 import SmartNotesStudio from '@/components/SmartNotesStudio';
+import { CampaignManager } from '@/components/CampaignManager';
 import { LoginScreen } from '@/components/LoginScreen';
 
 const queryClient = new QueryClient();
 
-type TabType = 'reports' | 'users' | 'pyqs' | 'articles' | 'dossiers' | 'social' | 'traps' | 'smart-notes' | 'press' | 'cache';
+type TabType = 
+  | 'campaigns'
+  | 'reports' 
+  | 'users' 
+  | 'pyqs' 
+  | 'articles' 
+  | 'dossiers' 
+  | 'social' 
+  | 'traps' 
+  | 'smart-notes' 
+  | 'press' 
+  | 'cache';
 
 function BrandLogo({ size = 'h-10 w-10' }: { size?: string }) {
   const [imgSrc, setImgSrc] = useState('/logo.png');
@@ -66,7 +79,7 @@ function BrandLogo({ size = 'h-10 w-10' }: { size?: string }) {
 
 export default function App() {
   const [authToken, setAuthToken] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<TabType>('reports');
+  const [activeTab, setActiveTab] = useState<TabType>('campaigns');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   useEffect(() => {
@@ -87,14 +100,15 @@ export default function App() {
   };
 
   const navItems = [
+    { id: 'campaigns' as const, label: 'Campaign Telemetry', icon: BarChart3 },
     { id: 'reports' as const, label: 'Audit & Reports', icon: AlertTriangle },
     { id: 'users' as const, label: 'Students & Telemetry', icon: Users },
-    { id: 'pyqs' as const, label: 'Prelims PYQ Bank', icon: Layers },
-    { id: 'articles' as const, label: 'Articles & Bare Act', icon: BookOpen },
-    { id: 'dossiers' as const, label: 'Living Dossiers', icon: FileText },
     { id: 'social' as const, label: 'Social Automation', icon: Sparkles },
-    { id: 'traps' as const, label: 'Prelims Traps', icon: ShieldAlert },
     { id: 'smart-notes' as const, label: 'Smart Notes Studio', icon: Sparkle },
+    { id: 'dossiers' as const, label: 'Living Dossiers', icon: FileText },
+    { id: 'articles' as const, label: 'Articles & Bare Act', icon: BookOpen },
+    { id: 'traps' as const, label: 'Prelims Traps', icon: ShieldAlert },
+    { id: 'pyqs' as const, label: 'Prelims PYQ Bank', icon: Layers },
     { id: 'press' as const, label: 'Press Ingestion ETL', icon: Newspaper },
     { id: 'cache' as const, label: 'Cache & Systems', icon: Database },
   ];
@@ -209,6 +223,7 @@ export default function App() {
           </header>
 
           <div className={activeTab === 'smart-notes' ? 'w-full h-[calc(100vh-4rem)] p-0' : 'p-4 sm:p-6 lg:p-8 max-w-[1600px] w-full mx-auto'}>
+            {activeTab === 'campaigns' && <CampaignManager />}
             {activeTab === 'reports' && <ReportManager />}
             {activeTab === 'users' && <UserManager />}
             {activeTab === 'pyqs' && <PYQManager />}
