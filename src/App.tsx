@@ -15,7 +15,9 @@ import {
   Sparkles,
   ShieldAlert,
   Sparkle,
-  BarChart3
+  BarChart3,
+  Edit3,
+  Sliders
 } from 'lucide-react';
 import { CacheManager } from '@/components/CacheManager';
 import { UserManager } from '@/components/UserManager';
@@ -24,6 +26,7 @@ import { ReportManager } from '@/components/ReportManager';
 import { ArticleManager } from '@/components/ArticleManager';
 import { PYQManager } from '@/components/PYQManager';
 import { PressManager } from '@/components/PressManager';
+import PressStudio from '@/components/PressStudio';
 import { SocialManager } from '@/components/SocialManager';
 import { PrelimsTrapManager } from '@/components/PrelimsTrapManager';
 import SmartNotesStudio from '@/components/SmartNotesStudio';
@@ -80,6 +83,7 @@ function BrandLogo({ size = 'h-10 w-10' }: { size?: string }) {
 export default function App() {
   const [authToken, setAuthToken] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabType>('campaigns');
+  const [pressSubTab, setPressSubTab] = useState<'studio' | 'etl'>('studio');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   useEffect(() => {
@@ -109,7 +113,7 @@ export default function App() {
     { id: 'articles' as const, label: 'Articles & Bare Act', icon: BookOpen },
     { id: 'traps' as const, label: 'Prelims Traps', icon: ShieldAlert },
     { id: 'pyqs' as const, label: 'Prelims PYQ Bank', icon: Layers },
-    { id: 'press' as const, label: 'Press Ingestion ETL', icon: Newspaper },
+    { id: 'press' as const, label: 'Daily Press Studio', icon: Newspaper },
     { id: 'cache' as const, label: 'Cache & Systems', icon: Database },
   ];
 
@@ -212,14 +216,52 @@ export default function App() {
               <span>Admin</span>
               <span>/</span>
               <span className="capitalize font-semibold text-slate-200">{activeTab.replace('-', ' ')}</span>
+              {activeTab === 'press' && (
+                <>
+                  <span>/</span>
+                  <span className="text-indigo-400 font-medium">
+                    {pressSubTab === 'studio' ? 'Review & Edit Studio' : 'ETL Ingestion'}
+                  </span>
+                </>
+              )}
             </div>
-            <button
-              onClick={handleLogout}
-              className="text-xs text-rose-400 hover:text-rose-300 flex items-center gap-1.5 py-1 px-2 rounded-md hover:bg-rose-950/30 transition"
-            >
-              <LogOut className="h-3.5 w-3.5" />
-              Sign Out
-            </button>
+
+            <div className="flex items-center gap-3">
+              {activeTab === 'press' && (
+                <div className="flex items-center bg-slate-900 border border-slate-800 rounded-lg p-1">
+                  <button
+                    onClick={() => setPressSubTab('studio')}
+                    className={`flex items-center gap-1.5 px-3 py-1 rounded text-xs font-semibold transition ${
+                      pressSubTab === 'studio'
+                        ? 'bg-indigo-600 text-white shadow-sm'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <Edit3 className="h-3 w-3" />
+                    Review Studio
+                  </button>
+                  <button
+                    onClick={() => setPressSubTab('etl')}
+                    className={`flex items-center gap-1.5 px-3 py-1 rounded text-xs font-semibold transition ${
+                      pressSubTab === 'etl'
+                        ? 'bg-indigo-600 text-white shadow-sm'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <Sliders className="h-3 w-3" />
+                    ETL Pipeline
+                  </button>
+                </div>
+              )}
+
+              <button
+                onClick={handleLogout}
+                className="text-xs text-rose-400 hover:text-rose-300 flex items-center gap-1.5 py-1 px-2 rounded-md hover:bg-rose-950/30 transition"
+              >
+                <LogOut className="h-3.5 w-3.5" />
+                Sign Out
+              </button>
+            </div>
           </header>
 
           <div className={activeTab === 'smart-notes' ? 'w-full h-[calc(100vh-4rem)] p-0' : 'p-4 sm:p-6 lg:p-8 max-w-[1600px] w-full mx-auto'}>
@@ -232,7 +274,9 @@ export default function App() {
             {activeTab === 'social' && <SocialManager />}
             {activeTab === 'traps' && <PrelimsTrapManager />}
             {activeTab === 'smart-notes' && <SmartNotesStudio />}
-            {activeTab === 'press' && <PressManager />}
+            {activeTab === 'press' && (
+              pressSubTab === 'studio' ? <PressStudio /> : <PressManager />
+            )}
             {activeTab === 'cache' && <CacheManager />}
           </div>
         </main>
